@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-const API_BASE = "https://meko-otp.phancongjp.workers.dev";
+const API_BASE = import.meta.env.VITE_OTP_API_BASE ?? "http://localhost:8787";
 
 type ListenStatus = "idle" | "waiting" | "received";
 
@@ -14,6 +14,7 @@ export default function App() {
   const [email, setEmail] = useState("");
   const [otp, setOtp] = useState<string | null>(null);
   const [status, setStatus] = useState<ListenStatus>("idle");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const intervalRef = useRef<number | null>(null);
   const sessionRef = useRef(0);
@@ -44,6 +45,7 @@ export default function App() {
 
     setOtp(null);
     setStatus("waiting");
+    setErrorMessage(null);
     stopPolling();
 
     const startedAt = Date.now();
@@ -75,10 +77,12 @@ export default function App() {
           hasReceivedOtp = true;
           setOtp(data.otp);
           setStatus("received");
+          setErrorMessage(null);
           stopPolling();
         }
       } catch (err) {
         console.error("Failed to fetch OTP", err);
+        setErrorMessage("Khong the ket noi API doc mail goc.");
       }
     };
 
@@ -106,6 +110,7 @@ export default function App() {
       await clearOtpOnServer(trimmedEmail);
     } catch (err) {
       console.error("Failed to clear OTP", err);
+      setErrorMessage("Khong the reset trang thai tren API local.");
     }
 
     setOtp(null);
@@ -152,6 +157,8 @@ export default function App() {
         {status === "received" && "OTP received"}
       </div>
 
+      {errorMessage && <div style={styles.error}>{errorMessage}</div>}
+
       {otp && (
         <div style={styles.otpBox}>
           <div style={styles.otp}>{otp}</div>
@@ -194,6 +201,11 @@ const styles: Record<string, React.CSSProperties> = {
   status: {
     marginTop: "20px",
     fontSize: "14px",
+  },
+  error: {
+    marginTop: "10px",
+    color: "#c62828",
+    fontSize: "13px",
   },
   otpBox: {
     marginTop: "20px",

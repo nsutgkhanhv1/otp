@@ -1,21 +1,43 @@
+# OTP IMAP API
+
+API local nay doc OTP truc tiep tu mot inbox IMAP "mail goc", khong dung Cloudflare Worker nua.
+
+## Cau hinh
+
+Tao file `.env` tu `.env.example` va dien thong tin inbox nguon:
+
+```txt
+OTP_SOURCE_HOST=imap.gmail.com
+OTP_SOURCE_SECURE=true
+OTP_SOURCE_USER=your-source-mail@gmail.com
+OTP_SOURCE_PASS=your-app-password
+OTP_SOURCE_MAILBOX=INBOX
+OTP_LOOKBACK_MINUTES=15
+OTP_FETCH_LIMIT=30
+PORT=8787
+```
+
+Ghi chu:
+
+- Neu dung Gmail, thuong can App Password thay vi mat khau dang nhap thong thuong.
+- API se uu tien tim email co chua dia chi email duoc nhap tren UI.
+- Neu khong tim thay email khop, API se fallback sang OTP moi nhat trong inbox nguon.
+
+## Chay local
+
 ```txt
 npm install
 npm run dev
 ```
 
-```txt
-npm run deploy
-```
-
-[For generating/synchronizing types based on your Worker configuration run](https://developers.cloudflare.com/workers/wrangler/commands/#types):
+## Build
 
 ```txt
-npm run cf-typegen
+npm run build
+npm run start
 ```
 
-Pass the `CloudflareBindings` as generics when instantiation `Hono`:
+## API
 
-```ts
-// src/index.ts
-const app = new Hono<{ Bindings: CloudflareBindings }>()
-```
+- `GET /otp?email=test@example.com&since=1710000000000`
+- `POST /clear`
