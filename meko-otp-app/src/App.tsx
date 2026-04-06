@@ -1,62 +1,115 @@
-import { useState, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
-const API_BASE = "https://meko-otp.phancongjp.workers.dev"; // <-- sửa lại
+const API_BASE = "https://meko-otp.phancongjp.workers.dev";
+
+type ListenStatus = "idle" | "waiting" | "received";
+
+type OtpResponse = {
+  email: string;
+  otp: string | null;
+  receivedAt: number | null;
+};
 
 export default function App() {
   const [email, setEmail] = useState("");
   const [otp, setOtp] = useState<string | null>(null);
-  const [status, setStatus] = useState<"idle" | "waiting" | "received">("idle");
+  const [status, setStatus] = useState<ListenStatus>("idle");
 
   const intervalRef = useRef<number | null>(null);
+  const sessionRef = useRef(0);
 
-  const startListening = () => {
-    if (!email) return;
+  const stopPolling = () => {
+    if (intervalRef.current !== null) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+  };
+
+  const clearOtpOnServer = async (targetEmail: string) => {
+    await fetch(`${API_BASE}/clear`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: targetEmail }),
+    });
+  };
+
+  const startListening = async () => {
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail) {
+      return;
+    }
+
+    const sessionId = sessionRef.current + 1;
+    sessionRef.current = sessionId;
 
     setOtp(null);
     setStatus("waiting");
+    stopPolling();
 
-    // clear interval cũ nếu có
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
+    const startedAt = Date.now();
+
+    try {
+      await clearOtpOnServer(trimmedEmail);
+    } catch (err) {
+      console.error("Failed to clear old OTP before listening", err);
     }
 
-    intervalRef.current = window.setInterval(async () => {
+    if (sessionRef.current !== sessionId) {
+      return;
+    }
+
+    let hasReceivedOtp = false;
+
+    const pollOtp = async () => {
       try {
         const res = await fetch(
-          `${API_BASE}/otp?email=${encodeURIComponent(email)}`,
+          `${API_BASE}/otp?email=${encodeURIComponent(trimmedEmail)}&since=${startedAt}`,
         );
-        const data = await res.json();
+        const data = (await res.json()) as OtpResponse;
+
+        if (sessionRef.current !== sessionId) {
+          return;
+        }
 
         if (data.otp) {
+          hasReceivedOtp = true;
           setOtp(data.otp);
           setStatus("received");
-
-          // stop polling
-          if (intervalRef.current) {
-            clearInterval(intervalRef.current);
-          }
+          stopPolling();
         }
       } catch (err) {
-        console.error(err);
+        console.error("Failed to fetch OTP", err);
       }
+    };
+
+    await pollOtp();
+
+    if (sessionRef.current !== sessionId || hasReceivedOtp) {
+      return;
+    }
+
+    intervalRef.current = window.setInterval(() => {
+      void pollOtp();
     }, 2000);
   };
 
   const reset = async () => {
-    if (!email) return;
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail) {
+      return;
+    }
 
-    await fetch(`${API_BASE}/clear`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email }),
-    });
+    sessionRef.current += 1;
+    stopPolling();
+
+    try {
+      await clearOtpOnServer(trimmedEmail);
+    } catch (err) {
+      console.error("Failed to clear OTP", err);
+    }
 
     setOtp(null);
     setStatus("idle");
-
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-    }
   };
 
   const copyOtp = async () => {
@@ -66,9 +119,15 @@ export default function App() {
     }
   };
 
+  useEffect(() => {
+    return () => {
+      stopPolling();
+    };
+  }, []);
+
   return (
     <div style={styles.container}>
-      <h1>📩 OTP Listener</h1>
+      <h1>OTP Listener</h1>
 
       <input
         style={styles.input}
@@ -78,25 +137,25 @@ export default function App() {
       />
 
       <div style={styles.buttonRow}>
-        <button style={styles.button} onClick={startListening}>
+        <button style={styles.button} onClick={() => void startListening()}>
           Start Listening
         </button>
 
-        <button style={styles.buttonSecondary} onClick={reset}>
+        <button style={styles.buttonSecondary} onClick={() => void reset()}>
           Reset
         </button>
       </div>
 
       <div style={styles.status}>
         {status === "idle" && "Idle"}
-        {status === "waiting" && "⏳ Waiting for OTP..."}
-        {status === "received" && "✅ OTP Received"}
+        {status === "waiting" && "Waiting for a new OTP..."}
+        {status === "received" && "OTP received"}
       </div>
 
       {otp && (
         <div style={styles.otpBox}>
           <div style={styles.otp}>{otp}</div>
-          <button style={styles.copyBtn} onClick={copyOtp}>
+          <button style={styles.copyBtn} onClick={() => void copyOtp()}>
             Copy
           </button>
         </div>
