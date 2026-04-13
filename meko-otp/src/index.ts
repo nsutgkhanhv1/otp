@@ -164,7 +164,7 @@ class ImapService {
   private client: ImapFlow | null = null;
   private connectPromise: Promise<ImapFlow> | null = null;
 
-  constructor(private readonly env: EnvConfig) {}
+  constructor(private readonly env: EnvConfig) { }
 
   async findOtp(email: string, since: number): Promise<OtpResult> {
     const normalizedEmail = email.toLowerCase();
@@ -299,8 +299,8 @@ const server = createServer(async (req, res) => {
   }
 });
 
-server.listen(config.port, () => {
-  console.log(`OTP server is listening on http://localhost:${config.port}`);
+server.listen(config.port, '0.0.0.0', () => {
+  console.log(`OTP server is listening on http://0.0.0.0:${config.port}`);
 });
 
 process.on("SIGINT", async () => {
