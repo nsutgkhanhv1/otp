@@ -2,6 +2,7 @@ import "dotenv/config";
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import process from "node:process";
 import { ImapFlow, ImapFlowOptions, FetchMessageObject } from "imapflow";
+import { AddressObject, ParsedMail, simpleParser } from "mailparser";
 
 type EnvConfig = {
   port: number;
@@ -23,7 +24,7 @@ type OtpResult = {
 
 type MailCandidate = {
   uid: number;
-  source: string;
+  source: Buffer;
   receivedAt: number;
 };
 
@@ -167,30 +168,44 @@ class ImapService {
   constructor(private readonly env: EnvConfig) { }
 
   async findOtp(email: string, since: number): Promise<OtpResult> {
-    const normalizedEmail = email.toLowerCase();
+    const normalizedEmail = normalizeEmail(email);
     const candidates = await this.fetchCandidates(since);
+    let fallbackMatch: OtpResult | null = null;
 
-    const emailMatch = candidates.find((candidate) => {
-      return matchesEmail(candidate.source, normalizedEmail) && extractOtp(candidate.source);
-    });
+    for (const candidate of candidates) {
+      try {
+        const parsed = await simpleParser(candidate.source);
+        const text = getSearchableMailText(parsed);
+        const otp = extractOtp(text);
 
-    if (emailMatch) {
-      return {
-        email,
-        otp: extractOtp(emailMatch.source),
-        receivedAt: emailMatch.receivedAt,
-        matchedBy: "email",
-      };
+        if (!otp) {
+          continue;
+        }
+
+        if (!fallbackMatch) {
+          fallbackMatch = {
+            email,
+            otp,
+            receivedAt: candidate.receivedAt,
+            matchedBy: normalizedEmail ? "fallback" : "email",
+          };
+        }
+
+        if (matchesParsedFrom(parsed.from, normalizedEmail)) {
+          return {
+            email,
+            otp,
+            receivedAt: candidate.receivedAt,
+            matchedBy: "email",
+          };
+        }
+      } catch (error) {
+        console.error("Parse mail error:", error);
+      }
     }
 
-    const fallbackMatch = candidates.find((candidate) => extractOtp(candidate.source));
     if (fallbackMatch) {
-      return {
-        email,
-        otp: extractOtp(fallbackMatch.source),
-        receivedAt: fallbackMatch.receivedAt,
-        matchedBy: normalizedEmail ? "fallback" : "email",
-      };
+      return fallbackMatch;
     }
 
     return {
@@ -239,7 +254,7 @@ class ImapService {
           internalDate: true,
           source: true,
         },
-        { uid: true },
+        { uid: true }
       );
 
       return messages
@@ -325,47 +340,70 @@ function toMailCandidate(message: FetchMessageObject): MailCandidate | null {
 
   return {
     uid: message.uid,
-    source: message.source.toString("utf8"),
+    source: message.source,
     receivedAt: new Date(message.internalDate).getTime(),
   };
 }
 
-function matchesEmail(source: string, email: string): boolean {
+function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+function matchesParsedFrom(from: AddressObject | undefined, email: string): boolean {
   if (!email) {
     return true;
   }
 
-  return source.toLowerCase().includes(email);
+  if (!from) {
+    return false;
+  }
+
+  return (
+    from.value.some((entry) => normalizeEmail(entry.address ?? "") === email) ||
+    normalizeEmail(from.text).includes(email)
+  );
+}
+
+function getSearchableMailText(parsed: Pick<ParsedMail, "text" | "html">): string {
+  const parts = [parsed.text ?? ""];
+
+  if (typeof parsed.html === "string") {
+    parts.push(parsed.html);
+  }
+
+  return normalize(parts.filter(Boolean).join("\n"));
+}
+
+function normalize(text: string): string {
+  return text
+    .replace(/=\r?\n/g, "")
+    .replace(/=20/g, " ")
+    .replace(/=3D/g, "=")
+    .replace(/\u00A0/g, " ")
+    .trim();
 }
 
 function extractOtp(text: string): string | null {
-  const keywordPatterns = [
-    /otp[^0-9]{0,20}([0-9]{4,8})/i,
-    /code[^0-9]{0,20}([0-9]{4,8})/i,
-    /verification[^0-9]{0,20}([0-9]{4,8})/i,
-    /password[^0-9]{0,20}([0-9]{4,8})/i,
+  const patterns = [
+    /otp[^0-9]{0,30}([0-9]{4,8})/i,
+    /code[^0-9]{0,30}([0-9]{4,8})/i,
+    /verification[^0-9]{0,30}([0-9]{4,8})/i,
+    /password[^0-9]{0,30}([0-9]{4,8})/i,
   ];
 
-  for (const pattern of keywordPatterns) {
+  for (const pattern of patterns) {
     const match = text.match(pattern);
-    if (match?.[1]) {
-      return match[1];
-    }
-  }
-
-  const lines = text.split(/\r?\n/);
-  for (const line of lines) {
-    const clean = line.trim();
-    if (/^\d{4,8}$/.test(clean)) {
-      return clean;
-    }
+    if (match?.[1]) return match[1];
   }
 
   const matches = text.match(/\b\d{4,8}\b/g) || [];
-  const filtered = matches.filter((value) => {
-    const parsed = Number.parseInt(value, 10);
-    return !(parsed >= 1900 && parsed <= 2099);
-  });
 
-  return filtered.pop() || null;
+  return (
+    matches
+      .reverse()
+      .find((value) => {
+        const parsed = Number(value);
+        return !(parsed >= 1900 && parsed <= 2099);
+      }) ?? null
+  );
 }
