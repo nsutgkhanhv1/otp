@@ -154,7 +154,7 @@ export default function App() {
     <main className="app-shell">
       <section className="hero-panel" aria-labelledby="app-title">
         <div className="brand-row">
-          <img className="brand-mark" src="/favicon.svg" alt="" />
+          <img className="brand-mark" src="/favicon.ico" alt="" />
           <span className="eyebrow">Meko lấy mã xác minh</span>
         </div>
 
@@ -223,20 +223,20 @@ export default function App() {
             {errorMessage && <div className="error-banner">{errorMessage}</div>}
 
             <div className={`otp-panel ${otp ? "otp-panel--ready" : ""}`}>
-              <div>
-                <p className="section-label">Mã xác minh mới nhất</p>
+              <p className="section-label">Mã xác minh mới nhất</p>
+              <div className="otp-row">
                 <div className="otp-code" aria-live="polite">
                   {otp ?? "------"}
                 </div>
+                <button
+                  className="copy-button"
+                  disabled={!otp}
+                  onClick={() => void copyOtp()}
+                  type="button"
+                >
+                  {hasCopied ? "Đã sao chép" : "Sao chép"}
+                </button>
               </div>
-              <button
-                className="copy-button"
-                disabled={!otp}
-                onClick={() => void copyOtp()}
-                type="button"
-              >
-                {hasCopied ? "Đã sao chép" : "Sao chép"}
-              </button>
             </div>
           </form>
         </div>

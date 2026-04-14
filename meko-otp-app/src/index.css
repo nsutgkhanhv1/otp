@@ -1,23 +1,24 @@
 :root {
-  --page: #f7f9fb;
-  --surface: #ffffff;
-  --surface-soft: #eef6f6;
-  --surface-warm: #fff1ed;
-  --text: #1b1f24;
-  --muted: #64717d;
-  --faint: #8b98a5;
-  --border: #dbe4ea;
-  --border-strong: #b9c8d1;
-  --primary: #08706f;
-  --primary-strong: #064f4f;
-  --primary-soft: #dff3f1;
-  --accent: #e6533f;
-  --accent-soft: #ffe3dc;
-  --success: #1f8a55;
-  --warning: #b76d00;
-  --danger: #c93636;
-  --shadow: 0 24px 70px rgba(27, 31, 36, 0.12);
-  --shadow-soft: 0 16px 35px rgba(27, 31, 36, 0.08);
+  --page: #050505;
+  --surface: #101010;
+  --surface-soft: #171111;
+  --surface-warm: #261312;
+  --surface-elevated: rgba(17, 13, 13, 0.92);
+  --text: #f6efea;
+  --muted: #c6ada4;
+  --faint: #95726a;
+  --border: rgba(255, 103, 71, 0.18);
+  --border-strong: rgba(255, 111, 76, 0.34);
+  --primary: #e1482e;
+  --primary-strong: #ff6a43;
+  --primary-soft: rgba(225, 72, 46, 0.16);
+  --accent: #ff5a3d;
+  --accent-soft: rgba(255, 90, 61, 0.14);
+  --success: #ff6a43;
+  --warning: #ff8468;
+  --danger: #ff6d63;
+  --shadow: 0 30px 90px rgba(0, 0, 0, 0.5);
+  --shadow-soft: 0 18px 45px rgba(0, 0, 0, 0.38);
   --sans:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     sans-serif;
@@ -41,6 +42,10 @@ body {
   min-width: 320px;
   min-height: 100svh;
   margin: 0;
+  background:
+    radial-gradient(circle at top right, rgba(255, 74, 38, 0.28), transparent 28%),
+    radial-gradient(circle at left 18% bottom 12%, rgba(255, 58, 34, 0.18), transparent 30%),
+    linear-gradient(180deg, #080707 0%, #050505 100%);
 }
 
 button,
@@ -54,7 +59,7 @@ button {
 
 button:focus-visible,
 input:focus-visible {
-  outline: 3px solid rgba(8, 112, 111, 0.22);
+  outline: 3px solid rgba(255, 106, 67, 0.28);
   outline-offset: 3px;
 }
 
@@ -71,10 +76,10 @@ button:disabled {
   min-height: 100svh;
   padding: 36px;
   background:
-    linear-gradient(135deg, rgba(8, 112, 111, 0.1), transparent 42%),
-    linear-gradient(315deg, rgba(230, 83, 63, 0.12), transparent 44%),
-    linear-gradient(rgba(185, 200, 209, 0.22) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(185, 200, 209, 0.22) 1px, transparent 1px),
+    radial-gradient(circle at top right, rgba(255, 87, 51, 0.24), transparent 24%),
+    radial-gradient(circle at bottom left, rgba(167, 20, 20, 0.22), transparent 28%),
+    linear-gradient(rgba(255, 92, 64, 0.09) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 92, 64, 0.09) 1px, transparent 1px),
     var(--page);
   background-size:
     auto,
@@ -90,7 +95,12 @@ button:disabled {
   margin: 0 auto;
   padding: 32px;
   overflow: hidden;
-  border-radius: 8px;
+  border: 1px solid rgba(255, 103, 71, 0.12);
+  border-radius: 24px;
+  background:
+    linear-gradient(180deg, rgba(24, 12, 12, 0.9), rgba(10, 8, 8, 0.96)),
+    radial-gradient(circle at top right, rgba(255, 89, 54, 0.12), transparent 32%);
+  box-shadow: var(--shadow);
 }
 
 .brand-row {
@@ -105,8 +115,8 @@ button:disabled {
   height: 42px;
   padding: 7px;
   border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(30, 18, 18, 0.98), rgba(18, 13, 13, 0.98));
   box-shadow: var(--shadow-soft);
 }
 
@@ -135,6 +145,7 @@ button:disabled {
 .kicker {
   margin: 0 0 14px;
   color: var(--primary);
+  letter-spacing: 0.08em;
 }
 
 h1,
@@ -150,6 +161,7 @@ h1 {
   font-weight: 850;
   line-height: 0.94;
   letter-spacing: 0;
+  text-shadow: 0 0 28px rgba(255, 96, 67, 0.12);
 }
 
 h2 {
@@ -179,8 +191,8 @@ h2 {
   min-height: 96px;
   padding: 18px;
   border: 1px solid var(--border);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.72);
+  border-radius: 16px;
+  background: rgba(18, 12, 12, 0.82);
 }
 
 .signal-value,
@@ -198,8 +210,10 @@ h2 {
 .listener-card {
   padding: 24px;
   border: 1px solid var(--border);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.88);
+  border-radius: 20px;
+  background:
+    linear-gradient(180deg, rgba(24, 14, 14, 0.94), rgba(14, 10, 10, 0.97)),
+    radial-gradient(circle at top right, rgba(255, 90, 61, 0.08), transparent 30%);
   box-shadow: var(--shadow-soft);
   backdrop-filter: blur(14px);
 }
@@ -225,9 +239,9 @@ h2 {
   min-height: 34px;
   padding: 7px 10px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 999px;
   color: var(--muted);
-  background: var(--page);
+  background: rgba(255, 255, 255, 0.02);
   font-size: 0.85rem;
   font-weight: 700;
 }
@@ -241,12 +255,12 @@ h2 {
 
 .status-pill--waiting {
   color: var(--warning);
-  background: #fff7e8;
+  background: rgba(255, 132, 104, 0.1);
 }
 
 .status-pill--received {
   color: var(--success);
-  background: #e8f7ee;
+  background: rgba(255, 106, 67, 0.14);
 }
 
 .email-field {
@@ -261,10 +275,10 @@ h2 {
   height: 56px;
   padding: 0 16px;
   border: 1px solid var(--border-strong);
-  border-radius: 8px;
+  border-radius: 14px;
   color: var(--text);
-  background: var(--surface);
-  box-shadow: inset 0 1px 0 rgba(27, 31, 36, 0.04);
+  background: rgba(255, 255, 255, 0.03);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
 .email-field input::placeholder {
@@ -282,7 +296,7 @@ h2 {
 .secondary-button,
 .copy-button {
   min-height: 48px;
-  border-radius: 8px;
+  border-radius: 14px;
   cursor: pointer;
   font-weight: 800;
   transition:
@@ -300,19 +314,19 @@ h2 {
 .primary-button {
   padding: 0 20px;
   color: #ffffff;
-  background: var(--primary);
-  box-shadow: 0 14px 24px rgba(8, 112, 111, 0.22);
+  background: linear-gradient(135deg, var(--primary-strong), var(--primary));
+  box-shadow: 0 16px 30px rgba(225, 72, 46, 0.28);
 }
 
 .primary-button:hover:not(:disabled) {
-  background: var(--primary-strong);
+  background: linear-gradient(135deg, #ff7f5e, #dc3c24);
 }
 
 .secondary-button {
   padding: 0 18px;
   color: var(--text);
-  border: 1px solid var(--border);
-  background: var(--surface-soft);
+  border: 1px solid var(--border-strong);
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .status-card {
@@ -323,18 +337,18 @@ h2 {
   margin-top: 18px;
   padding: 16px;
   border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--page);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.03);
 }
 
 .status-card--waiting {
-  border-color: #ffd99a;
-  background: #fff9ef;
+  border-color: rgba(255, 132, 104, 0.28);
+  background: linear-gradient(135deg, rgba(255, 132, 104, 0.1), rgba(255, 255, 255, 0.03));
 }
 
 .status-card--received {
-  border-color: #bce7cb;
-  background: #effaf3;
+  border-color: rgba(255, 106, 67, 0.3);
+  background: linear-gradient(135deg, rgba(255, 106, 67, 0.12), rgba(255, 255, 255, 0.03));
 }
 
 .status-icon {
@@ -342,9 +356,9 @@ h2 {
   width: 42px;
   height: 42px;
   place-items: center;
-  border-radius: 8px;
-  color: var(--primary-strong);
-  background: var(--primary-soft);
+  border-radius: 12px;
+  color: #ffd8cf;
+  background: linear-gradient(135deg, rgba(255, 106, 67, 0.3), rgba(225, 72, 46, 0.16));
   font-size: 1.35rem;
   font-weight: 900;
 }
@@ -363,49 +377,64 @@ h2 {
 .error-banner {
   margin-top: 14px;
   padding: 12px 14px;
-  border: 1px solid rgba(201, 54, 54, 0.25);
-  border-radius: 8px;
+  border: 1px solid rgba(255, 109, 99, 0.3);
+  border-radius: 14px;
   color: var(--danger);
-  background: #fff0f0;
+  background: rgba(255, 109, 99, 0.1);
   font-size: 0.92rem;
   font-weight: 700;
 }
 
 .otp-panel {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 16px;
+  gap: 12px;
   min-height: 118px;
   margin-top: 18px;
   padding: 18px;
   border: 1px dashed var(--border-strong);
-  border-radius: 8px;
-  background: linear-gradient(135deg, var(--surface-soft), var(--surface-warm));
+  border-radius: 18px;
+  background:
+    linear-gradient(135deg, rgba(28, 18, 18, 0.95), rgba(34, 16, 16, 0.92)),
+    radial-gradient(circle at right, rgba(255, 90, 61, 0.14), transparent 30%);
 }
 
 .otp-panel--ready {
   border-style: solid;
-  border-color: rgba(8, 112, 111, 0.38);
+  border-color: rgba(255, 106, 67, 0.35);
+  box-shadow: inset 0 0 0 1px rgba(255, 106, 67, 0.08);
+}
+
+.otp-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
 }
 
 .otp-code {
-  margin-top: 6px;
+  flex: 1 1 240px;
+  min-width: 0;
   color: var(--text);
   font-family: var(--mono);
   font-size: clamp(2rem, 9vw, 3.4rem);
   font-weight: 900;
   line-height: 1;
   letter-spacing: 0;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
+  overflow-wrap: normal;
+  word-break: normal;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 24px rgba(255, 94, 64, 0.18);
 }
 
 .copy-button {
+  flex: 0 0 auto;
+  margin-left: auto;
   min-width: 92px;
   padding: 0 16px;
-  color: var(--primary-strong);
-  border: 1px solid rgba(8, 112, 111, 0.32);
-  background: #ffffff;
+  color: #ffd5cd;
+  border: 1px solid rgba(255, 106, 67, 0.32);
+  background: rgba(255, 255, 255, 0.04);
 }
 
 @media (max-width: 900px) {
@@ -476,7 +505,6 @@ h2 {
   }
 
   .card-heading,
-  .otp-panel,
   .button-row {
     grid-template-columns: 1fr;
   }
