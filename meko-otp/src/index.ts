@@ -93,7 +93,7 @@ function parseSince(value: string | null): number {
 }
 
 function loadConfig(): EnvConfig {
-  const port = Number.parseInt(process.env.PORT ?? "8787", 10);
+  const port = Number.parseInt(process.env.PORT ?? "80", 10);
   const host = requireEnv("OTP_SOURCE_HOST");
   const mailbox = process.env.OTP_SOURCE_MAILBOX?.trim() || "INBOX";
   const user = requireEnv("OTP_SOURCE_USER");
@@ -103,7 +103,7 @@ function loadConfig(): EnvConfig {
   const fetchLimit = parsePositiveInt(process.env.OTP_FETCH_LIMIT, 30);
 
   return {
-    port: Number.isFinite(port) ? port : 8787,
+    port: Number.isFinite(port) ? port : 80,
     host,
     mailbox,
     secure,

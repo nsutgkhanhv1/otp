@@ -10,14 +10,32 @@ type OtpResponse = {
   receivedAt: number | null;
 };
 
+const statusCopy: Record<ListenStatus, { label: string; detail: string }> = {
+  idle: {
+    label: "Sẵn sàng",
+    detail: "Nhập email bạn muốn nhận mã rồi bấm bắt đầu.",
+  },
+  waiting: {
+    label: "Đang chờ mã",
+    detail: "Hãy yêu cầu gửi mã về email này. Nếu đã gửi mà chưa thấy, bấm Làm mới.",
+  },
+  received: {
+    label: "Đã có mã",
+    detail: "Mã xác minh mới đã sẵn sàng để sao chép.",
+  },
+};
+
 export default function App() {
   const [email, setEmail] = useState("");
   const [otp, setOtp] = useState<string | null>(null);
   const [status, setStatus] = useState<ListenStatus>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [hasCopied, setHasCopied] = useState(false);
 
   const intervalRef = useRef<number | null>(null);
   const sessionRef = useRef(0);
+  const trimmedEmail = email.trim();
+  const canListen = trimmedEmail.length > 0;
 
   const stopPolling = () => {
     if (intervalRef.current !== null) {
@@ -35,7 +53,6 @@ export default function App() {
   };
 
   const startListening = async () => {
-    const trimmedEmail = email.trim();
     if (!trimmedEmail) {
       return;
     }
@@ -44,6 +61,7 @@ export default function App() {
     sessionRef.current = sessionId;
 
     setOtp(null);
+    setHasCopied(false);
     setStatus("waiting");
     setErrorMessage(null);
     stopPolling();
@@ -82,7 +100,6 @@ export default function App() {
         }
       } catch (err) {
         console.error("Failed to fetch OTP", err);
-        setErrorMessage("Khong the ket noi API doc mail goc.");
       }
     };
 
@@ -98,7 +115,6 @@ export default function App() {
   };
 
   const reset = async () => {
-    const trimmedEmail = email.trim();
     if (!trimmedEmail) {
       return;
     }
@@ -110,18 +126,22 @@ export default function App() {
       await clearOtpOnServer(trimmedEmail);
     } catch (err) {
       console.error("Failed to clear OTP", err);
-      setErrorMessage("Khong the reset trang thai tren API local.");
+      setErrorMessage("Chưa làm mới được. Vui lòng thử lại sau ít giây.");
     }
 
     setOtp(null);
+    setHasCopied(false);
     setStatus("idle");
   };
 
   const copyOtp = async () => {
-    if (otp) {
-      await navigator.clipboard.writeText(otp);
-      alert("Copied OTP!");
+    if (!otp) {
+      return;
     }
+
+    await navigator.clipboard.writeText(otp);
+    setHasCopied(true);
+    window.setTimeout(() => setHasCopied(false), 1600);
   };
 
   useEffect(() => {
@@ -131,92 +151,96 @@ export default function App() {
   }, []);
 
   return (
-    <div style={styles.container}>
-      <h1>OTP Listener</h1>
-
-      <input
-        style={styles.input}
-        placeholder="Enter email (e.g. test@domain.com)"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-      />
-
-      <div style={styles.buttonRow}>
-        <button style={styles.button} onClick={() => void startListening()}>
-          Start Listening
-        </button>
-
-        <button style={styles.buttonSecondary} onClick={() => void reset()}>
-          Reset
-        </button>
-      </div>
-
-      <div style={styles.status}>
-        {status === "idle" && "Idle"}
-        {status === "waiting" && "Waiting for a new OTP..."}
-        {status === "received" && "OTP received"}
-      </div>
-
-      {errorMessage && <div style={styles.error}>{errorMessage}</div>}
-
-      {otp && (
-        <div style={styles.otpBox}>
-          <div style={styles.otp}>{otp}</div>
-          <button style={styles.copyBtn} onClick={() => void copyOtp()}>
-            Copy
-          </button>
+    <main className="app-shell">
+      <section className="hero-panel" aria-labelledby="app-title">
+        <div className="brand-row">
+          <img className="brand-mark" src="/favicon.svg" alt="" />
+          <span className="eyebrow">Meko lấy mã xác minh</span>
         </div>
-      )}
-    </div>
+
+        <div className="hero-grid">
+          <div className="intro">
+            <p className="kicker">Lấy mã từ email</p>
+            <h1 id="app-title">Nhận mã xác minh nhanh và dễ sao chép.</h1>
+            <p className="lede">
+              Nhập email, bấm bắt đầu, rồi gửi mã về email đó. Khi có mã mới,
+              bạn chỉ cần bấm sao chép.
+            </p>
+          </div>
+
+          <form
+            className="listener-card"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void startListening();
+            }}
+          >
+            <div className="card-heading">
+              <div>
+                <p className="section-label">Email nhận mã</p>
+                <h2>Bạn muốn lấy mã từ email nào?</h2>
+              </div>
+              <span className={`status-pill status-pill--${status}`}>
+                <span className="status-dot" />
+                {statusCopy[status].label}
+              </span>
+            </div>
+
+            <label className="email-field">
+              <span>Địa chỉ email</span>
+              <input
+                placeholder="vidu@email.com"
+                type="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+              />
+            </label>
+
+            <div className="button-row">
+              <button className="primary-button" disabled={!canListen} type="submit">
+                {status === "waiting" ? "Đang chờ mã..." : "Bắt đầu lấy mã"}
+              </button>
+              <button
+                className="secondary-button"
+                disabled={!canListen}
+                onClick={() => void reset()}
+                type="button"
+              >
+                Làm mới
+              </button>
+            </div>
+
+            <div className={`status-card status-card--${status}`} role="status">
+              <div className="status-icon" aria-hidden="true">
+                {status === "received" ? "OK" : status === "waiting" ? "..." : "-"}
+              </div>
+              <div>
+                <strong>{statusCopy[status].label}</strong>
+                <p>{statusCopy[status].detail}</p>
+              </div>
+            </div>
+
+            {errorMessage && <div className="error-banner">{errorMessage}</div>}
+
+            <div className={`otp-panel ${otp ? "otp-panel--ready" : ""}`}>
+              <div>
+                <p className="section-label">Mã xác minh mới nhất</p>
+                <div className="otp-code" aria-live="polite">
+                  {otp ?? "------"}
+                </div>
+              </div>
+              <button
+                className="copy-button"
+                disabled={!otp}
+                onClick={() => void copyOtp()}
+                type="button"
+              >
+                {hasCopied ? "Đã sao chép" : "Sao chép"}
+              </button>
+            </div>
+          </form>
+        </div>
+      </section>
+    </main>
   );
 }
-
-const styles: Record<string, React.CSSProperties> = {
-  container: {
-    maxWidth: 400,
-    margin: "100px auto",
-    fontFamily: "sans-serif",
-    textAlign: "center",
-  },
-  input: {
-    width: "100%",
-    padding: "10px",
-    marginBottom: "12px",
-    fontSize: "16px",
-  },
-  buttonRow: {
-    display: "flex",
-    gap: "10px",
-    justifyContent: "center",
-  },
-  button: {
-    padding: "10px 16px",
-    cursor: "pointer",
-  },
-  buttonSecondary: {
-    padding: "10px 16px",
-    cursor: "pointer",
-    background: "#eee",
-  },
-  status: {
-    marginTop: "20px",
-    fontSize: "14px",
-  },
-  error: {
-    marginTop: "10px",
-    color: "#c62828",
-    fontSize: "13px",
-  },
-  otpBox: {
-    marginTop: "20px",
-  },
-  otp: {
-    fontSize: "32px",
-    fontWeight: "bold",
-    marginBottom: "10px",
-  },
-  copyBtn: {
-    padding: "6px 12px",
-    cursor: "pointer",
-  },
-};
