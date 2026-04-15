@@ -13,6 +13,7 @@ type EnvConfig = {
   pass: string;
   lookbackMinutes: number;
   fetchLimit: number;
+  sinceGraceMs: number;
 };
 
 type OtpResult = {
@@ -102,6 +103,7 @@ function loadConfig(): EnvConfig {
   const secure = parseBoolean(process.env.OTP_SOURCE_SECURE, true);
   const lookbackMinutes = parsePositiveInt(process.env.OTP_LOOKBACK_MINUTES, 15);
   const fetchLimit = parsePositiveInt(process.env.OTP_FETCH_LIMIT, 30);
+  const sinceGraceSeconds = parsePositiveInt(process.env.OTP_SINCE_GRACE_SECONDS, 90);
 
   return {
     port: Number.isFinite(port) ? port : 80,
@@ -112,6 +114,7 @@ function loadConfig(): EnvConfig {
     pass,
     lookbackMinutes,
     fetchLimit,
+    sinceGraceMs: sinceGraceSeconds * 1000,
   };
 }
 
@@ -239,6 +242,7 @@ class ImapService {
     const lock = await client.getMailboxLock(this.env.mailbox);
 
     try {
+      const effectiveSince = Math.max(0, since - this.env.sinceGraceMs);
       const searchSince = new Date(since - this.env.lookbackMinutes * 60_000);
       const uids = (await client.search({ since: searchSince }, { uid: true })) || [];
 
@@ -260,7 +264,7 @@ class ImapService {
       return messages
         .map((message) => toMailCandidate(message))
         .filter((message): message is MailCandidate => Boolean(message))
-        .filter((message) => message.receivedAt >= since)
+        .filter((message) => message.receivedAt >= effectiveSince)
         .sort((a, b) => b.receivedAt - a.receivedAt || b.uid - a.uid);
     } finally {
       lock.release();

@@ -14,6 +14,7 @@ OTP_SOURCE_PASS=your-app-password
 OTP_SOURCE_MAILBOX=INBOX
 OTP_LOOKBACK_MINUTES=15
 OTP_FETCH_LIMIT=30
+OTP_SINCE_GRACE_SECONDS=90
 PORT=8787
 ```
 
@@ -22,6 +23,7 @@ Ghi chu:
 - Neu dung Gmail, thuong can App Password thay vi mat khau dang nhap thong thuong.
 - API se uu tien tim email co chua dia chi email duoc nhap tren UI.
 - Neu khong tim thay email khop, API se fallback sang OTP moi nhat trong inbox nguon.
+- `OTP_SINCE_GRACE_SECONDS` them khoang dem de van bat duoc mail den sat thoi diem bam "Bat dau lay ma".
 
 ## Chay local
 

@@ -152,7 +152,7 @@ export default function App() {
 
   return (
     <main className="app-shell">
-      <section className="hero-panel" aria-labelledby="app-title">
+      <section className="hero-panel" aria-label="Meko lấy mã xác minh">
         <div className="brand-row">
           <img className="brand-mark" src="/favicon.ico" alt="" />
           <span className="eyebrow">Meko lấy mã xác minh</span>
