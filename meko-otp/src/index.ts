@@ -21,12 +21,57 @@ type OtpResult = {
   otp: string | null;
   receivedAt: number | null;
   matchedBy: "email" | "fallback" | null;
+  error: string | null;
+  debug: OtpDebug;
 };
 
 type MailCandidate = {
   uid: number;
   source: Buffer;
   receivedAt: number;
+};
+
+type DebugCandidate = {
+  uid: number;
+  receivedAt: number;
+  receivedAtIso: string;
+  from: string | null;
+  subject: string | null;
+  otp: string | null;
+  matchedEmail: boolean;
+};
+
+type OtpDebug = {
+  email: string;
+  normalizedEmail: string;
+  host: string;
+  mailbox: string;
+  now: number;
+  nowIso: string;
+  since: number;
+  sinceIso: string;
+  effectiveSince: number;
+  effectiveSinceIso: string;
+  searchSince: number;
+  searchSinceIso: string;
+  lookbackMinutes: number;
+  sinceGraceMs: number;
+  fetchLimit: number;
+  uidCount: number;
+  recentUidCount: number;
+  recentUids: number[];
+  fetchedMessageCount: number;
+  filteredMessageCount: number;
+  matchedCandidateUid: number | null;
+  matchedBy: "email" | "fallback" | null;
+  connectionError: string | null;
+  fetchError: string | null;
+  candidates: DebugCandidate[];
+};
+
+type FetchCandidatesResult = {
+  candidates: MailCandidate[];
+  debug: OtpDebug;
 };
 
 const config = loadConfig();
@@ -167,56 +212,154 @@ function createImapConfig(env: EnvConfig): ImapFlowOptions {
 class ImapService {
   private client: ImapFlow | null = null;
   private connectPromise: Promise<ImapFlow> | null = null;
+  private lastConnectionError: string | null = null;
 
   constructor(private readonly env: EnvConfig) { }
 
   async findOtp(email: string, since: number): Promise<OtpResult> {
     const normalizedEmail = normalizeEmail(email);
-    const candidates = await this.fetchCandidates(since);
-    let fallbackMatch: OtpResult | null = null;
-
-    for (const candidate of candidates) {
-      try {
-        const parsed = await simpleParser(candidate.source);
-        const text = getSearchableMailText(parsed);
-        const otp = extractOtp(text);
-
-        if (!otp) {
-          continue;
-        }
-
-        if (!fallbackMatch) {
-          fallbackMatch = {
-            email,
-            otp,
-            receivedAt: candidate.receivedAt,
-            matchedBy: normalizedEmail ? "fallback" : "email",
-          };
-        }
-
-        if (matchesParsedFrom(parsed.from, normalizedEmail)) {
-          return {
-            email,
-            otp,
-            receivedAt: candidate.receivedAt,
-            matchedBy: "email",
-          };
-        }
-      } catch (error) {
-        console.error("Parse mail error:", error);
-      }
-    }
-
-    if (fallbackMatch) {
-      return fallbackMatch;
-    }
-
-    return {
+    console.log("[otp-debug] request", JSON.stringify({
       email,
-      otp: null,
-      receivedAt: null,
-      matchedBy: null,
-    };
+      normalizedEmail,
+      since,
+      sinceIso: toIsoString(since),
+    }));
+
+    try {
+      const { candidates, debug } = await this.fetchCandidates(email, normalizedEmail, since);
+      let fallbackMatch: OtpResult | null = null;
+
+      for (const candidate of candidates) {
+        try {
+          const parsed = await simpleParser(candidate.source);
+          const text = getSearchableMailText(parsed);
+          const otp = extractOtp(text);
+          const matchedEmail = matchesParsedFrom(parsed.from, normalizedEmail);
+          const candidateDebug: DebugCandidate = {
+            uid: candidate.uid,
+            receivedAt: candidate.receivedAt,
+            receivedAtIso: toIsoString(candidate.receivedAt),
+            from: parsed.from?.text ?? null,
+            subject: parsed.subject ?? null,
+            otp,
+            matchedEmail,
+          };
+
+          debug.candidates.push(candidateDebug);
+          console.log("[otp-debug] candidate", JSON.stringify(candidateDebug));
+
+          if (!otp) {
+            continue;
+          }
+
+          if (!fallbackMatch) {
+            debug.matchedCandidateUid = candidate.uid;
+            debug.matchedBy = normalizedEmail ? "fallback" : "email";
+            fallbackMatch = {
+              email,
+              otp,
+              receivedAt: candidate.receivedAt,
+              matchedBy: normalizedEmail ? "fallback" : "email",
+              error: null,
+              debug,
+            };
+          }
+
+          if (matchedEmail) {
+            debug.matchedCandidateUid = candidate.uid;
+            debug.matchedBy = "email";
+
+            const result: OtpResult = {
+              email,
+              otp,
+              receivedAt: candidate.receivedAt,
+              matchedBy: "email",
+              error: null,
+              debug,
+            };
+
+            console.log("[otp-debug] result", JSON.stringify({
+              email,
+              matchedBy: result.matchedBy,
+              matchedCandidateUid: debug.matchedCandidateUid,
+              candidateCount: debug.candidates.length,
+              error: result.error,
+            }));
+            return result;
+          }
+        } catch (error) {
+          const parseError = serializeError(error);
+          debug.candidates.push({
+            uid: candidate.uid,
+            receivedAt: candidate.receivedAt,
+            receivedAtIso: toIsoString(candidate.receivedAt),
+            from: null,
+            subject: null,
+            otp: null,
+            matchedEmail: false,
+          });
+          console.error("Parse mail error:", error);
+          console.log("[otp-debug] candidate-parse-error", JSON.stringify({
+            uid: candidate.uid,
+            receivedAt: candidate.receivedAt,
+            receivedAtIso: toIsoString(candidate.receivedAt),
+            error: parseError,
+          }));
+        }
+      }
+
+      if (fallbackMatch) {
+        console.log("[otp-debug] result", JSON.stringify({
+          email,
+          matchedBy: fallbackMatch.matchedBy,
+          matchedCandidateUid: debug.matchedCandidateUid,
+          candidateCount: debug.candidates.length,
+          error: fallbackMatch.error,
+        }));
+        return fallbackMatch;
+      }
+
+      const result: OtpResult = {
+        email,
+        otp: null,
+        receivedAt: null,
+        matchedBy: null,
+        error: null,
+        debug,
+      };
+
+      console.log("[otp-debug] result", JSON.stringify({
+        email,
+        matchedBy: result.matchedBy,
+        matchedCandidateUid: debug.matchedCandidateUid,
+        candidateCount: debug.candidates.length,
+        error: result.error,
+      }));
+      return result;
+    } catch (error) {
+      const debug = this.createDebug(email, normalizedEmail, since);
+      debug.connectionError = this.lastConnectionError;
+      debug.fetchError = serializeError(error);
+
+      const result: OtpResult = {
+        email,
+        otp: null,
+        receivedAt: null,
+        matchedBy: null,
+        error: debug.fetchError,
+        debug,
+      };
+
+      console.error("Find OTP error:", error);
+      console.log("[otp-debug] result", JSON.stringify({
+        email,
+        matchedBy: result.matchedBy,
+        matchedCandidateUid: debug.matchedCandidateUid,
+        candidateCount: debug.candidates.length,
+        error: result.error,
+      }));
+      return result;
+    }
   }
 
   async close() {
@@ -237,20 +380,70 @@ class ImapService {
     currentClient.close();
   }
 
-  private async fetchCandidates(since: number): Promise<MailCandidate[]> {
+  private createDebug(email: string, normalizedEmail: string, since: number): OtpDebug {
+    const now = Date.now();
+    const effectiveSince = Math.max(0, since - this.env.sinceGraceMs);
+    const searchSince = since - this.env.lookbackMinutes * 60_000;
+
+    return {
+      email,
+      normalizedEmail,
+      host: this.env.host,
+      mailbox: this.env.mailbox,
+      now,
+      nowIso: toIsoString(now),
+      since,
+      sinceIso: toIsoString(since),
+      effectiveSince,
+      effectiveSinceIso: toIsoString(effectiveSince),
+      searchSince,
+      searchSinceIso: toIsoString(searchSince),
+      lookbackMinutes: this.env.lookbackMinutes,
+      sinceGraceMs: this.env.sinceGraceMs,
+      fetchLimit: this.env.fetchLimit,
+      uidCount: 0,
+      recentUidCount: 0,
+      recentUids: [],
+      fetchedMessageCount: 0,
+      filteredMessageCount: 0,
+      matchedCandidateUid: null,
+      matchedBy: null,
+      connectionError: this.lastConnectionError,
+      fetchError: null,
+      candidates: [],
+    };
+  }
+
+  private async fetchCandidates(email: string, normalizedEmail: string, since: number): Promise<FetchCandidatesResult> {
     const client = await this.getClient();
     const lock = await client.getMailboxLock(this.env.mailbox);
+    const debug = this.createDebug(email, normalizedEmail, since);
 
     try {
-      const effectiveSince = Math.max(0, since - this.env.sinceGraceMs);
-      const searchSince = new Date(since - this.env.lookbackMinutes * 60_000);
+      const effectiveSince = debug.effectiveSince;
+      const searchSince = new Date(debug.searchSince);
       const uids = (await client.search({ since: searchSince }, { uid: true })) || [];
+      debug.uidCount = uids.length;
 
       if (uids.length === 0) {
-        return [];
+        console.log("[otp-debug] fetch-summary", JSON.stringify({
+          email,
+          normalizedEmail,
+          since: debug.since,
+          effectiveSince: debug.effectiveSince,
+          searchSince: debug.searchSince,
+          uidCount: debug.uidCount,
+          recentUidCount: debug.recentUidCount,
+          fetchedMessageCount: debug.fetchedMessageCount,
+          filteredMessageCount: debug.filteredMessageCount,
+          connectionError: debug.connectionError,
+        }));
+        return { candidates: [], debug };
       }
 
       const recentUids = uids.slice(-this.env.fetchLimit);
+      debug.recentUids = recentUids;
+      debug.recentUidCount = recentUids.length;
       const messages = await client.fetchAll(
         recentUids,
         {
@@ -260,12 +453,30 @@ class ImapService {
         },
         { uid: true }
       );
+      debug.fetchedMessageCount = messages.length;
 
-      return messages
+      const candidates = messages
         .map((message) => toMailCandidate(message))
         .filter((message): message is MailCandidate => Boolean(message))
         .filter((message) => message.receivedAt >= effectiveSince)
         .sort((a, b) => b.receivedAt - a.receivedAt || b.uid - a.uid);
+      debug.filteredMessageCount = candidates.length;
+
+      console.log("[otp-debug] fetch-summary", JSON.stringify({
+        email,
+        normalizedEmail,
+        since: debug.since,
+        effectiveSince: debug.effectiveSince,
+        searchSince: debug.searchSince,
+        uidCount: debug.uidCount,
+        recentUidCount: debug.recentUidCount,
+        recentUids: debug.recentUids,
+        fetchedMessageCount: debug.fetchedMessageCount,
+        filteredMessageCount: debug.filteredMessageCount,
+        connectionError: debug.connectionError,
+      }));
+
+      return { candidates, debug };
     } finally {
       lock.release();
     }
@@ -288,10 +499,12 @@ class ImapService {
       });
 
       client.on("error", (error) => {
+        this.lastConnectionError = serializeError(error);
         console.error("IMAP connection error:", error);
       });
 
       await client.connect();
+      this.lastConnectionError = null;
       this.client = client;
       this.connectPromise = null;
       return client;
@@ -363,7 +576,7 @@ function matchesParsedFrom(from: AddressObject | undefined, email: string): bool
   }
 
   return (
-    from.value.some((entry) => normalizeEmail(entry.address ?? "") === email) ||
+    from.value.some((entry: { address?: string | null }) => normalizeEmail(entry.address ?? "") === email) ||
     normalizeEmail(from.text).includes(email)
   );
 }
@@ -410,4 +623,24 @@ function extractOtp(text: string): string | null {
         return !(parsed >= 1900 && parsed <= 2099);
       }) ?? null
   );
+}
+
+function serializeError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (typeof error === "string") {
+    return error;
+  }
+
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return "Unknown error";
+  }
+}
+
+function toIsoString(value: number): string {
+  return new Date(value).toISOString();
 }

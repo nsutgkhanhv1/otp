@@ -437,6 +437,37 @@ h2 {
   background: rgba(255, 255, 255, 0.04);
 }
 
+.debug-panel {
+  margin-top: 18px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.debug-heading {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.debug-heading strong {
+  color: var(--text);
+  font-size: 0.98rem;
+}
+
+.debug-output {
+  margin: 0;
+  padding: 14px;
+  overflow: auto;
+  border-radius: 14px;
+  color: #ffd9cf;
+  background: rgba(0, 0, 0, 0.34);
+  font: 0.84rem/1.45 var(--mono);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 @media (max-width: 900px) {
   .app-shell {
     padding: 18px;
@@ -529,5 +560,9 @@ h2 {
   .secondary-button,
   .copy-button {
     width: 100%;
+  }
+
+  .debug-output {
+    font-size: 0.78rem;
   }
 }

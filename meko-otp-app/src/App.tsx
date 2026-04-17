@@ -8,6 +8,9 @@ type OtpResponse = {
   email: string;
   otp: string | null;
   receivedAt: number | null;
+  matchedBy?: "email" | "fallback" | null;
+  error: string | null;
+  debug: Record<string, unknown> | null;
 };
 
 const statusCopy: Record<ListenStatus, { label: string; detail: string }> = {
@@ -31,6 +34,7 @@ export default function App() {
   const [status, setStatus] = useState<ListenStatus>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [hasCopied, setHasCopied] = useState(false);
+  const [debugInfo, setDebugInfo] = useState<Record<string, unknown> | null>(null);
 
   const intervalRef = useRef<number | null>(null);
   const sessionRef = useRef(0);
@@ -64,6 +68,7 @@ export default function App() {
     setHasCopied(false);
     setStatus("waiting");
     setErrorMessage(null);
+    setDebugInfo(null);
     stopPolling();
 
     const startedAt = Date.now();
@@ -86,20 +91,23 @@ export default function App() {
           `${API_BASE}/otp?email=${encodeURIComponent(trimmedEmail)}&since=${startedAt}`,
         );
         const data = (await res.json()) as OtpResponse;
+        setDebugInfo(data.debug ?? null);
 
         if (sessionRef.current !== sessionId) {
           return;
         }
 
+        setErrorMessage(data.error);
+
         if (data.otp) {
           hasReceivedOtp = true;
           setOtp(data.otp);
           setStatus("received");
-          setErrorMessage(null);
           stopPolling();
         }
       } catch (err) {
         console.error("Failed to fetch OTP", err);
+        setErrorMessage("Khong goi duoc API OTP. Kiem tra backend va mang.");
       }
     };
 
@@ -132,6 +140,7 @@ export default function App() {
     setOtp(null);
     setHasCopied(false);
     setStatus("idle");
+    setDebugInfo(null);
   };
 
   const copyOtp = async () => {
@@ -237,6 +246,14 @@ export default function App() {
                   {hasCopied ? "Đã sao chép" : "Sao chép"}
                 </button>
               </div>
+            </div>
+
+            <div className="debug-panel">
+              <div className="debug-heading">
+                <p className="section-label">Debug response</p>
+                <strong>Payload tra ve tu backend</strong>
+              </div>
+              <pre className="debug-output">{JSON.stringify(debugInfo, null, 2) ?? "null"}</pre>
             </div>
           </form>
         </div>
