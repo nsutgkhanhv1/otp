@@ -15,6 +15,9 @@ type EnvConfig = {
   lookbackMinutes: number;
   fetchLimit: number;
   sinceGraceMs: number;
+  imapConnectionTimeoutMs: number;
+  imapGreetingTimeoutMs: number;
+  imapSocketTimeoutMs: number;
 };
 
 type MatchMode = "recipient";
@@ -278,6 +281,9 @@ function loadConfig(): EnvConfig {
   const lookbackMinutes = parsePositiveInt(process.env.OTP_LOOKBACK_MINUTES, 15);
   const fetchLimit = parsePositiveInt(process.env.OTP_FETCH_LIMIT, 30);
   const sinceGraceSeconds = parsePositiveInt(process.env.OTP_SINCE_GRACE_SECONDS, 90);
+  const imapConnectionTimeoutSeconds = parsePositiveInt(process.env.OTP_IMAP_CONNECTION_TIMEOUT_SECONDS, 10);
+  const imapGreetingTimeoutSeconds = parsePositiveInt(process.env.OTP_IMAP_GREETING_TIMEOUT_SECONDS, 10);
+  const imapSocketTimeoutSeconds = parsePositiveInt(process.env.OTP_IMAP_SOCKET_TIMEOUT_SECONDS, 12);
 
   return {
     port: Number.isFinite(port) ? port : 80,
@@ -289,6 +295,9 @@ function loadConfig(): EnvConfig {
     lookbackMinutes,
     fetchLimit,
     sinceGraceMs: sinceGraceSeconds * 1000,
+    imapConnectionTimeoutMs: imapConnectionTimeoutSeconds * 1000,
+    imapGreetingTimeoutMs: imapGreetingTimeoutSeconds * 1000,
+    imapSocketTimeoutMs: imapSocketTimeoutSeconds * 1000,
   };
 }
 
@@ -334,6 +343,9 @@ function createImapConfig(env: EnvConfig): ImapFlowOptions {
       user: env.user,
       pass: env.pass,
     },
+    connectionTimeout: env.imapConnectionTimeoutMs,
+    greetingTimeout: env.imapGreetingTimeoutMs,
+    socketTimeout: env.imapSocketTimeoutMs,
     logger: false,
   };
 }

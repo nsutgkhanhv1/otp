@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 
 const API_BASE = import.meta.env.VITE_OTP_API_BASE ?? "http://localhost:8787";
+const POLL_INTERVAL_MS = 2000;
+const POLL_REQUEST_TIMEOUT_MS = 15000;
 
 type ListenStatus = "idle" | "waiting" | "received";
 
@@ -46,7 +48,7 @@ export default function App() {
   const [debugInfo, setDebugInfo] = useState<Record<string, unknown> | null>(null);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
 
-  const intervalRef = useRef<number | null>(null);
+  const timeoutRef = useRef<number | null>(null);
   const sessionRef = useRef(0);
   const activeSessionIdRef = useRef<string | null>(null);
   const trimmedEmail = email.trim();
@@ -58,9 +60,9 @@ export default function App() {
   };
 
   const stopPolling = () => {
-    if (intervalRef.current !== null) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
+    if (timeoutRef.current !== null) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
     }
   };
 
@@ -140,14 +142,21 @@ export default function App() {
 
     let hasReceivedOtp = false;
 
-    const pollOtp = async () => {
+    const pollOtp = async (): Promise<boolean> => {
+      const abortController = new AbortController();
+      const abortTimeout = window.setTimeout(() => {
+        abortController.abort();
+      }, POLL_REQUEST_TIMEOUT_MS);
+
       try {
-        const res = await fetch(`${API_BASE}/otp?sessionId=${encodeURIComponent(newSessionId)}`);
+        const res = await fetch(`${API_BASE}/otp?sessionId=${encodeURIComponent(newSessionId)}`, {
+          signal: abortController.signal,
+        });
         const data = (await res.json()) as OtpResponse;
         setDebugInfo(data.debug ?? null);
 
         if (sessionRef.current !== runId) {
-          return;
+          return false;
         }
 
         if (data.sessionStatus === "expired") {
@@ -155,7 +164,7 @@ export default function App() {
           setSessionState(null);
           setStatus("idle");
           setErrorMessage(data.error ?? "Session da het han. Hay bat dau lai.");
-          return;
+          return false;
         }
 
         setErrorMessage(data.error);
@@ -165,22 +174,41 @@ export default function App() {
           setOtp(data.otp);
           setStatus("received");
           stopPolling();
+          return false;
         }
+
+        return true;
       } catch (err) {
         console.error("Failed to fetch OTP", err);
-        setErrorMessage("Khong goi duoc API OTP. Kiem tra backend va mang.");
+        setErrorMessage(
+          err instanceof DOMException && err.name === "AbortError"
+            ? "API OTP phan hoi cham. Dang thu lai..."
+            : "Khong goi duoc API OTP. Kiem tra backend va mang.",
+        );
+        return sessionRef.current === runId;
+      } finally {
+        window.clearTimeout(abortTimeout);
       }
     };
 
-    await pollOtp();
+    const scheduleNextPoll = () => {
+      timeoutRef.current = window.setTimeout(async () => {
+        timeoutRef.current = null;
+        const shouldContinue = await pollOtp();
 
-    if (sessionRef.current !== runId || hasReceivedOtp) {
+        if (sessionRef.current === runId && shouldContinue) {
+          scheduleNextPoll();
+        }
+      }, POLL_INTERVAL_MS);
+    };
+
+    const shouldContinue = await pollOtp();
+
+    if (sessionRef.current !== runId || hasReceivedOtp || !shouldContinue) {
       return;
     }
 
-    intervalRef.current = window.setInterval(() => {
-      void pollOtp();
-    }, 2000);
+    scheduleNextPoll();
   };
 
   const reset = async () => {

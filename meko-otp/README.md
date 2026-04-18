@@ -16,6 +16,9 @@ OTP_SOURCE_MAILBOX=INBOX
 OTP_LOOKBACK_MINUTES=15
 OTP_FETCH_LIMIT=30
 OTP_SINCE_GRACE_SECONDS=90
+OTP_IMAP_CONNECTION_TIMEOUT_SECONDS=10
+OTP_IMAP_GREETING_TIMEOUT_SECONDS=10
+OTP_IMAP_SOCKET_TIMEOUT_SECONDS=12
 PORT=8787
 ```
 
@@ -26,6 +29,7 @@ Ghi chu:
 - Backend uu tien cac recipient signal nhu `To`, `Delivered-To`, `X-Original-To`, `Envelope-To`, `Original-Recipient`, `X-Forwarded-To`.
 - Neu mail khong co recipient signal ro rang thi backend se bo qua mail do, khong fallback mu de tranh phat nham OTP cho session khac.
 - `OTP_SINCE_GRACE_SECONDS` them khoang dem de van bat duoc mail den sat thoi diem bam "Bat dau lay ma".
+- Cac bien `OTP_IMAP_*_TIMEOUT_SECONDS` gioi han thoi gian cho IMAP de tranh request `/otp` pending qua lau khi mail server cham.
 
 ## Chay local
 
