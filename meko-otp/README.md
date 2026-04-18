@@ -1,6 +1,7 @@
 # OTP IMAP API
 
 API local nay doc OTP truc tiep tu mot inbox IMAP "mail goc", khong dung Cloudflare Worker nua.
+Moi lan bat dau lay ma se tao mot `sessionId` rieng tren server de tranh phat cung 1 OTP cho nhieu client dang cho song song.
 
 ## Cau hinh
 
@@ -21,8 +22,9 @@ PORT=8787
 Ghi chu:
 
 - Neu dung Gmail, thuong can App Password thay vi mat khau dang nhap thong thuong.
-- API se uu tien tim email co chua dia chi email duoc nhap tren UI.
-- Neu khong tim thay email khop, API se fallback sang OTP moi nhat trong inbox nguon.
+- API chi claim OTP khi mail cho thay ro nguoi nhan trung voi email da nhap tren UI.
+- Backend uu tien cac recipient signal nhu `To`, `Delivered-To`, `X-Original-To`, `Envelope-To`, `Original-Recipient`, `X-Forwarded-To`.
+- Neu mail khong co recipient signal ro rang thi backend se bo qua mail do, khong fallback mu de tranh phat nham OTP cho session khac.
 - `OTP_SINCE_GRACE_SECONDS` them khoang dem de van bat duoc mail den sat thoi diem bam "Bat dau lay ma".
 
 ## Chay local
@@ -41,5 +43,30 @@ npm run start
 
 ## API
 
-- `GET /otp?email=test@example.com&since=1710000000000`
-- `POST /clear`
+1. Tao session moi:
+
+```txt
+POST /session
+Content-Type: application/json
+
+{
+  "email": "test@example.com"
+}
+```
+
+2. Poll OTP theo session:
+
+```txt
+GET /otp?sessionId=<session-id>
+```
+
+3. Huy session khi reset UI:
+
+```txt
+POST /clear
+Content-Type: application/json
+
+{
+  "sessionId": "<session-id>"
+}
+```

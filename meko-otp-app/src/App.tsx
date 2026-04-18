@@ -5,26 +5,35 @@ const API_BASE = import.meta.env.VITE_OTP_API_BASE ?? "http://localhost:8787";
 type ListenStatus = "idle" | "waiting" | "received";
 
 type OtpResponse = {
+  sessionId: string | null;
+  sessionStatus: "waiting" | "resolved" | "expired";
   email: string;
   otp: string | null;
   receivedAt: number | null;
-  matchedBy?: "email" | "fallback" | null;
+  matchedBy?: "recipient" | null;
   error: string | null;
   debug: Record<string, unknown> | null;
 };
 
+type CreateSessionResponse = {
+  sessionId: string;
+  email: string;
+  startedAt: number;
+  effectiveSince: number;
+};
+
 const statusCopy: Record<ListenStatus, { label: string; detail: string }> = {
   idle: {
-    label: "Sẵn sàng",
-    detail: "Nhập email bạn muốn nhận mã rồi bấm bắt đầu.",
+    label: "San sang",
+    detail: "Nhap email ban muon nhan ma roi bam bat dau.",
   },
   waiting: {
-    label: "Đang chờ mã",
-    detail: "Hãy yêu cầu gửi mã về email này. Nếu đã gửi mà chưa thấy, bấm Làm mới.",
+    label: "Dang cho ma",
+    detail: "Hay gui ma ve email nay. Neu da gui ma ma chua thay, bam Lam moi.",
   },
   received: {
-    label: "Đã có mã",
-    detail: "Mã xác minh mới đã sẵn sàng để sao chép.",
+    label: "Da co ma",
+    detail: "Ma xac minh moi da san sang de sao chep.",
   },
 };
 
@@ -35,11 +44,18 @@ export default function App() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [hasCopied, setHasCopied] = useState(false);
   const [debugInfo, setDebugInfo] = useState<Record<string, unknown> | null>(null);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
 
   const intervalRef = useRef<number | null>(null);
   const sessionRef = useRef(0);
+  const activeSessionIdRef = useRef<string | null>(null);
   const trimmedEmail = email.trim();
   const canListen = trimmedEmail.length > 0;
+
+  const setSessionState = (sessionId: string | null) => {
+    activeSessionIdRef.current = sessionId;
+    setActiveSessionId(sessionId);
+  };
 
   const stopPolling = () => {
     if (intervalRef.current !== null) {
@@ -48,12 +64,32 @@ export default function App() {
     }
   };
 
-  const clearOtpOnServer = async (targetEmail: string) => {
+  const clearOtpOnServer = async (sessionId: string | null) => {
+    if (!sessionId) {
+      return;
+    }
+
     await fetch(`${API_BASE}/clear`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId }),
+    });
+  };
+
+  const createSessionOnServer = async (targetEmail: string) => {
+    const res = await fetch(`${API_BASE}/session`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email: targetEmail }),
     });
+
+    const data = (await res.json()) as Partial<CreateSessionResponse> & { error?: string };
+
+    if (!res.ok || !data.sessionId) {
+      throw new Error(data.error ?? "Khong tao duoc session moi.");
+    }
+
+    return data.sessionId;
   };
 
   const startListening = async () => {
@@ -61,39 +97,64 @@ export default function App() {
       return;
     }
 
-    const sessionId = sessionRef.current + 1;
-    sessionRef.current = sessionId;
+    const runId = sessionRef.current + 1;
+    sessionRef.current = runId;
+
+    const previousSessionId = activeSessionIdRef.current;
 
     setOtp(null);
     setHasCopied(false);
     setStatus("waiting");
     setErrorMessage(null);
     setDebugInfo(null);
+    setSessionState(null);
     stopPolling();
 
-    const startedAt = Date.now();
+    try {
+      await clearOtpOnServer(previousSessionId);
+    } catch (err) {
+      console.error("Failed to clear previous session", err);
+    }
+
+    let newSessionId: string;
 
     try {
-      await clearOtpOnServer(trimmedEmail);
+      newSessionId = await createSessionOnServer(trimmedEmail);
     } catch (err) {
-      console.error("Failed to clear old OTP before listening", err);
-    }
-
-    if (sessionRef.current !== sessionId) {
+      console.error("Failed to create OTP session", err);
+      setStatus("idle");
+      setErrorMessage("Khong tao duoc session lay OTP. Kiem tra backend va thu lai.");
       return;
     }
+
+    if (sessionRef.current !== runId) {
+      try {
+        await clearOtpOnServer(newSessionId);
+      } catch (err) {
+        console.error("Failed to clear abandoned session", err);
+      }
+      return;
+    }
+
+    setSessionState(newSessionId);
 
     let hasReceivedOtp = false;
 
     const pollOtp = async () => {
       try {
-        const res = await fetch(
-          `${API_BASE}/otp?email=${encodeURIComponent(trimmedEmail)}&since=${startedAt}`,
-        );
+        const res = await fetch(`${API_BASE}/otp?sessionId=${encodeURIComponent(newSessionId)}`);
         const data = (await res.json()) as OtpResponse;
         setDebugInfo(data.debug ?? null);
 
-        if (sessionRef.current !== sessionId) {
+        if (sessionRef.current !== runId) {
+          return;
+        }
+
+        if (data.sessionStatus === "expired") {
+          stopPolling();
+          setSessionState(null);
+          setStatus("idle");
+          setErrorMessage(data.error ?? "Session da het han. Hay bat dau lai.");
           return;
         }
 
@@ -113,7 +174,7 @@ export default function App() {
 
     await pollOtp();
 
-    if (sessionRef.current !== sessionId || hasReceivedOtp) {
+    if (sessionRef.current !== runId || hasReceivedOtp) {
       return;
     }
 
@@ -123,20 +184,17 @@ export default function App() {
   };
 
   const reset = async () => {
-    if (!trimmedEmail) {
-      return;
-    }
-
     sessionRef.current += 1;
     stopPolling();
 
     try {
-      await clearOtpOnServer(trimmedEmail);
+      await clearOtpOnServer(activeSessionIdRef.current);
     } catch (err) {
-      console.error("Failed to clear OTP", err);
-      setErrorMessage("Chưa làm mới được. Vui lòng thử lại sau ít giây.");
+      console.error("Failed to clear OTP session", err);
+      setErrorMessage("Chua lam moi duoc. Vui long thu lai sau it giay.");
     }
 
+    setSessionState(null);
     setOtp(null);
     setHasCopied(false);
     setStatus("idle");
@@ -161,19 +219,19 @@ export default function App() {
 
   return (
     <main className="app-shell">
-      <section className="hero-panel" aria-label="Meko lấy mã xác minh">
+      <section className="hero-panel" aria-label="Meko lay ma xac minh">
         <div className="brand-row">
           <img className="brand-mark" src="/favicon.ico" alt="" />
-          <span className="eyebrow">Meko lấy mã xác minh</span>
+          <span className="eyebrow">Meko lay ma xac minh</span>
         </div>
 
         <div className="hero-grid">
           <div className="intro">
-            <p className="kicker">Lấy mã từ email</p>
-            <h1 id="app-title">Nhận mã xác minh nhanh và dễ sao chép.</h1>
+            <p className="kicker">Lay ma tu email</p>
+            <h1 id="app-title">Nhan ma xac minh nhanh va de sao chep.</h1>
             <p className="lede">
-              Nhập email, bấm bắt đầu, rồi gửi mã về email đó. Khi có mã mới,
-              bạn chỉ cần bấm sao chép.
+              Nhap email, bam bat dau, roi gui ma ve email do. Khi co ma moi, ban chi can
+              bam sao chep.
             </p>
           </div>
 
@@ -186,8 +244,8 @@ export default function App() {
           >
             <div className="card-heading">
               <div>
-                <p className="section-label">Email nhận mã</p>
-                <h2>Bạn muốn lấy mã từ email nào?</h2>
+                <p className="section-label">Email nhan ma</p>
+                <h2>Ban muon lay ma tu email nao?</h2>
               </div>
               <span className={`status-pill status-pill--${status}`}>
                 <span className="status-dot" />
@@ -196,7 +254,7 @@ export default function App() {
             </div>
 
             <label className="email-field">
-              <span>Địa chỉ email</span>
+              <span>Dia chi email</span>
               <input
                 placeholder="vidu@email.com"
                 type="email"
@@ -207,15 +265,15 @@ export default function App() {
 
             <div className="button-row">
               <button className="primary-button" disabled={!canListen} type="submit">
-                {status === "waiting" ? "Đang chờ mã..." : "Bắt đầu lấy mã"}
+                {status === "waiting" ? "Dang cho ma..." : "Bat dau lay ma"}
               </button>
               <button
                 className="secondary-button"
-                disabled={!canListen}
+                disabled={!activeSessionId && !otp && status === "idle"}
                 onClick={() => void reset()}
                 type="button"
               >
-                Làm mới
+                Lam moi
               </button>
             </div>
 
@@ -232,7 +290,7 @@ export default function App() {
             {errorMessage && <div className="error-banner">{errorMessage}</div>}
 
             <div className={`otp-panel ${otp ? "otp-panel--ready" : ""}`}>
-              <p className="section-label">Mã xác minh mới nhất</p>
+              <p className="section-label">Ma xac minh moi nhat</p>
               <div className="otp-row">
                 <div className="otp-code" aria-live="polite">
                   {otp ?? "------"}
@@ -243,7 +301,7 @@ export default function App() {
                   onClick={() => void copyOtp()}
                   type="button"
                 >
-                  {hasCopied ? "Đã sao chép" : "Sao chép"}
+                  {hasCopied ? "Da sao chep" : "Sao chep"}
                 </button>
               </div>
             </div>
