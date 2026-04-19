@@ -4,6 +4,7 @@ const API_BASE = import.meta.env.VITE_OTP_API_BASE ?? "http://localhost:8787";
 const POLL_INTERVAL_MS = 2000;
 
 type ListenStatus = "idle" | "waiting" | "received";
+type Language = "vi" | "en";
 
 type OtpResponse = {
   sessionId: string | null;
@@ -13,7 +14,6 @@ type OtpResponse = {
   receivedAt: number | null;
   matchedBy?: "recipient" | null;
   error: string | null;
-  debug: Record<string, unknown> | null;
 };
 
 type CreateSessionResponse = {
@@ -23,28 +23,155 @@ type CreateSessionResponse = {
   effectiveSince: number;
 };
 
-const statusCopy: Record<ListenStatus, { label: string; detail: string }> = {
-  idle: {
-    label: "San sang",
-    detail: "Nhap email ban muon nhan ma roi bam bat dau.",
+const copy = {
+  vi: {
+    brand: "Meko nhận mã xác minh",
+    heroAria: "Meko nhận mã xác minh",
+    languageLabel: "Ngôn ngữ",
+    languageOptions: {
+      vi: "Tiếng Việt",
+      en: "English",
+    },
+    kicker: "Mã xác minh qua email",
+    title: "Nhận mã nhanh, sao chép gọn.",
+    lede:
+      "Nhập email cần nhận mã, bấm bắt đầu rồi gửi mã về địa chỉ đó. Khi có mã mới, bạn chỉ cần sao chép.",
+    formLabel: "Email cần nhận mã",
+    formTitle: "Bạn muốn lấy mã từ email nào?",
+    emailLabel: "Địa chỉ email",
+    emailPlaceholder: "vidu@email.com",
+    startButton: "Bắt đầu nhận mã",
+    waitingButton: "Đang chờ mã...",
+    refreshButton: "Làm mới",
+    otpLabel: "Mã xác minh mới nhất",
+    copyButton: "Sao chép",
+    copiedButton: "Đã sao chép",
+    statusIcon: {
+      idle: "-",
+      waiting: "...",
+      received: "OK",
+    },
+    status: {
+      idle: {
+        label: "Sẵn sàng",
+        detail: "Nhập email cần nhận mã rồi bấm bắt đầu.",
+      },
+      waiting: {
+        label: "Đang chờ mã",
+        detail: "Hãy gửi mã về email này. Nếu đã gửi mà chưa thấy mã, bấm Làm mới.",
+      },
+      received: {
+        label: "Đã có mã",
+        detail: "Mã xác minh mới đã sẵn sàng để sao chép.",
+      },
+    },
+    errors: {
+      sessionCreateFallback: "Không thể bắt đầu phiên nhận mã mới.",
+      sessionCreateFailed: "Không thể bắt đầu nhận mã. Vui lòng kiểm tra kết nối rồi thử lại.",
+      otpApiRetry: (statusCode: number) => `Chưa lấy được mã (${statusCode}). Hệ thống đang thử lại...`,
+      sessionExpired: "Phiên nhận mã đã hết hạn. Vui lòng bắt đầu lại.",
+      otpFetchFailed: "Không thể kiểm tra mã mới. Vui lòng kiểm tra kết nối mạng.",
+      refreshFailed: "Chưa thể làm mới. Vui lòng thử lại sau vài giây.",
+    },
   },
-  waiting: {
-    label: "Dang cho ma",
-    detail: "Hay gui ma ve email nay. Neu da gui ma ma chua thay, bam Lam moi.",
+  en: {
+    brand: "Meko verification codes",
+    heroAria: "Meko verification code receiver",
+    languageLabel: "Language",
+    languageOptions: {
+      vi: "Tiếng Việt",
+      en: "English",
+    },
+    kicker: "Email verification codes",
+    title: "Receive codes fast. Copy them cleanly.",
+    lede:
+      "Enter the email that should receive the code, start listening, then send the code to that address. When a new code arrives, copy it in one click.",
+    formLabel: "Email to watch",
+    formTitle: "Which email should we watch?",
+    emailLabel: "Email address",
+    emailPlaceholder: "example@email.com",
+    startButton: "Start receiving codes",
+    waitingButton: "Waiting for code...",
+    refreshButton: "Refresh",
+    otpLabel: "Latest verification code",
+    copyButton: "Copy",
+    copiedButton: "Copied",
+    statusIcon: {
+      idle: "-",
+      waiting: "...",
+      received: "OK",
+    },
+    status: {
+      idle: {
+        label: "Ready",
+        detail: "Enter the email that will receive the code, then start listening.",
+      },
+      waiting: {
+        label: "Waiting",
+        detail: "Send the code to this email. If it was already sent, try Refresh.",
+      },
+      received: {
+        label: "Code received",
+        detail: "A new verification code is ready to copy.",
+      },
+    },
+    errors: {
+      sessionCreateFallback: "Could not start a new receiving session.",
+      sessionCreateFailed: "Could not start receiving codes. Check the connection and try again.",
+      otpApiRetry: (statusCode: number) => `No code yet (${statusCode}). Retrying...`,
+      sessionExpired: "The session expired. Please start again.",
+      otpFetchFailed: "Could not check for a new code. Please check the network connection.",
+      refreshFailed: "Could not refresh yet. Please try again in a few seconds.",
+    },
   },
-  received: {
-    label: "Da co ma",
-    detail: "Ma xac minh moi da san sang de sao chep.",
-  },
+} satisfies Record<
+  Language,
+  {
+    brand: string;
+    heroAria: string;
+    languageLabel: string;
+    languageOptions: Record<Language, string>;
+    kicker: string;
+    title: string;
+    lede: string;
+    formLabel: string;
+    formTitle: string;
+    emailLabel: string;
+    emailPlaceholder: string;
+    startButton: string;
+    waitingButton: string;
+    refreshButton: string;
+    otpLabel: string;
+    copyButton: string;
+    copiedButton: string;
+    statusIcon: Record<ListenStatus, string>;
+    status: Record<ListenStatus, { label: string; detail: string }>;
+    errors: {
+      sessionCreateFallback: string;
+      sessionCreateFailed: string;
+      otpApiRetry: (statusCode: number) => string;
+      sessionExpired: string;
+      otpFetchFailed: string;
+      refreshFailed: string;
+    };
+  }
+>;
+
+const getInitialLanguage = (): Language => {
+  if (typeof window === "undefined") {
+    return "vi";
+  }
+
+  return window.localStorage.getItem("meko-language") === "en" ? "en" : "vi";
 };
 
 export default function App() {
+  const [language, setLanguage] = useState<Language>(getInitialLanguage);
   const [email, setEmail] = useState("");
   const [otp, setOtp] = useState<string | null>(null);
   const [status, setStatus] = useState<ListenStatus>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [hasCopied, setHasCopied] = useState(false);
-  const [debugInfo, setDebugInfo] = useState<Record<string, unknown> | null>(null);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
 
   const timeoutRef = useRef<number | null>(null);
@@ -52,6 +179,12 @@ export default function App() {
   const activeSessionIdRef = useRef<string | null>(null);
   const trimmedEmail = email.trim();
   const canListen = trimmedEmail.length > 0;
+  const t = copy[language];
+
+  const changeLanguage = (nextLanguage: Language) => {
+    setLanguage(nextLanguage);
+    window.localStorage.setItem("meko-language", nextLanguage);
+  };
 
   const setSessionState = (sessionId: string | null) => {
     activeSessionIdRef.current = sessionId;
@@ -87,7 +220,7 @@ export default function App() {
     const data = (await res.json()) as Partial<CreateSessionResponse> & { error?: string };
 
     if (!res.ok || !data.sessionId) {
-      throw new Error(data.error ?? "Khong tao duoc session moi.");
+      throw new Error(data.error ?? t.errors.sessionCreateFallback);
     }
 
     return data.sessionId;
@@ -107,7 +240,6 @@ export default function App() {
     setHasCopied(false);
     setStatus("waiting");
     setErrorMessage(null);
-    setDebugInfo(null);
     setSessionState(null);
     stopPolling();
 
@@ -124,7 +256,7 @@ export default function App() {
     } catch (err) {
       console.error("Failed to create OTP session", err);
       setStatus("idle");
-      setErrorMessage("Khong tao duoc session lay OTP. Kiem tra backend va thu lai.");
+      setErrorMessage(t.errors.sessionCreateFailed);
       return;
     }
 
@@ -145,12 +277,11 @@ export default function App() {
       try {
         const res = await fetch(`${API_BASE}/otp?sessionId=${encodeURIComponent(newSessionId)}`);
         if (!res.ok) {
-          setErrorMessage(`API OTP dang loi (${res.status}). Dang thu lai...`);
+          setErrorMessage(t.errors.otpApiRetry(res.status));
           return sessionRef.current === runId;
         }
 
         const data = (await res.json()) as OtpResponse;
-        setDebugInfo(data.debug ?? null);
 
         if (sessionRef.current !== runId) {
           return false;
@@ -160,7 +291,7 @@ export default function App() {
           stopPolling();
           setSessionState(null);
           setStatus("idle");
-          setErrorMessage(data.error ?? "Session da het han. Hay bat dau lai.");
+          setErrorMessage(data.error ?? t.errors.sessionExpired);
           return false;
         }
 
@@ -177,7 +308,7 @@ export default function App() {
         return true;
       } catch (err) {
         console.error("Failed to fetch OTP", err);
-        setErrorMessage("Khong goi duoc API OTP. Kiem tra backend va mang.");
+        setErrorMessage(t.errors.otpFetchFailed);
         return sessionRef.current === runId;
       }
     };
@@ -210,14 +341,13 @@ export default function App() {
       await clearOtpOnServer(activeSessionIdRef.current);
     } catch (err) {
       console.error("Failed to clear OTP session", err);
-      setErrorMessage("Chua lam moi duoc. Vui long thu lai sau it giay.");
+      setErrorMessage(t.errors.refreshFailed);
     }
 
     setSessionState(null);
     setOtp(null);
     setHasCopied(false);
     setStatus("idle");
-    setDebugInfo(null);
   };
 
   const copyOtp = async () => {
@@ -238,20 +368,31 @@ export default function App() {
 
   return (
     <main className="app-shell">
-      <section className="hero-panel" aria-label="Meko lay ma xac minh">
+      <section className="hero-panel" aria-label={t.heroAria}>
         <div className="brand-row">
-          <img className="brand-mark" src="/favicon.ico" alt="" />
-          <span className="eyebrow">Meko lay ma xac minh</span>
+          <div className="brand-lockup">
+            <img className="brand-mark" src="/favicon.ico" alt="" />
+            <span className="eyebrow">{t.brand}</span>
+          </div>
+
+          <label className="language-select">
+            <span>{t.languageLabel}</span>
+            <select
+              aria-label={t.languageLabel}
+              value={language}
+              onChange={(event) => changeLanguage(event.target.value as Language)}
+            >
+              <option value="vi">{t.languageOptions.vi}</option>
+              <option value="en">{t.languageOptions.en}</option>
+            </select>
+          </label>
         </div>
 
         <div className="hero-grid">
           <div className="intro">
-            <p className="kicker">Lay ma tu email</p>
-            <h1 id="app-title">Nhan ma xac minh nhanh va de sao chep.</h1>
-            <p className="lede">
-              Nhap email, bam bat dau, roi gui ma ve email do. Khi co ma moi, ban chi can
-              bam sao chep.
-            </p>
+            <p className="kicker">{t.kicker}</p>
+            <h1 id="app-title">{t.title}</h1>
+            <p className="lede">{t.lede}</p>
           </div>
 
           <form
@@ -263,19 +404,19 @@ export default function App() {
           >
             <div className="card-heading">
               <div>
-                <p className="section-label">Email nhan ma</p>
-                <h2>Ban muon lay ma tu email nao?</h2>
+                <p className="section-label">{t.formLabel}</p>
+                <h2>{t.formTitle}</h2>
               </div>
               <span className={`status-pill status-pill--${status}`}>
                 <span className="status-dot" />
-                {statusCopy[status].label}
+                {t.status[status].label}
               </span>
             </div>
 
             <label className="email-field">
-              <span>Dia chi email</span>
+              <span>{t.emailLabel}</span>
               <input
-                placeholder="vidu@email.com"
+                placeholder={t.emailPlaceholder}
                 type="email"
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
@@ -284,7 +425,7 @@ export default function App() {
 
             <div className="button-row">
               <button className="primary-button" disabled={!canListen} type="submit">
-                {status === "waiting" ? "Dang cho ma..." : "Bat dau lay ma"}
+                {status === "waiting" ? t.waitingButton : t.startButton}
               </button>
               <button
                 className="secondary-button"
@@ -292,24 +433,24 @@ export default function App() {
                 onClick={() => void reset()}
                 type="button"
               >
-                Lam moi
+                {t.refreshButton}
               </button>
             </div>
 
             <div className={`status-card status-card--${status}`} role="status">
               <div className="status-icon" aria-hidden="true">
-                {status === "received" ? "OK" : status === "waiting" ? "..." : "-"}
+                {t.statusIcon[status]}
               </div>
               <div>
-                <strong>{statusCopy[status].label}</strong>
-                <p>{statusCopy[status].detail}</p>
+                <strong>{t.status[status].label}</strong>
+                <p>{t.status[status].detail}</p>
               </div>
             </div>
 
             {errorMessage && <div className="error-banner">{errorMessage}</div>}
 
             <div className={`otp-panel ${otp ? "otp-panel--ready" : ""}`}>
-              <p className="section-label">Ma xac minh moi nhat</p>
+              <p className="section-label">{t.otpLabel}</p>
               <div className="otp-row">
                 <div className="otp-code" aria-live="polite">
                   {otp ?? "------"}
@@ -320,17 +461,9 @@ export default function App() {
                   onClick={() => void copyOtp()}
                   type="button"
                 >
-                  {hasCopied ? "Da sao chep" : "Sao chep"}
+                  {hasCopied ? t.copiedButton : t.copyButton}
                 </button>
               </div>
-            </div>
-
-            <div className="debug-panel">
-              <div className="debug-heading">
-                <p className="section-label">Debug response</p>
-                <strong>Payload tra ve tu backend</strong>
-              </div>
-              <pre className="debug-output">{JSON.stringify(debugInfo, null, 2) ?? "null"}</pre>
             </div>
           </form>
         </div>
