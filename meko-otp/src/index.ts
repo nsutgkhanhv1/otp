@@ -18,6 +18,8 @@ type EnvConfig = {
   imapConnectionTimeoutMs: number;
   imapGreetingTimeoutMs: number;
   imapSocketTimeoutMs: number;
+  imapKeepAliveMs: number;
+  otpRequestTimeoutMs: number;
 };
 
 type MatchMode = "recipient";
@@ -126,6 +128,7 @@ type OtpDebug = {
   claimedUidCount: number;
   connectionError: string | null;
   fetchError: string | null;
+  timingsMs: Record<string, number>;
   candidates: DebugCandidate[];
 };
 
@@ -279,11 +282,13 @@ function loadConfig(): EnvConfig {
   const pass = requireEnv("OTP_SOURCE_PASS");
   const secure = parseBoolean(process.env.OTP_SOURCE_SECURE, true);
   const lookbackMinutes = parsePositiveInt(process.env.OTP_LOOKBACK_MINUTES, 15);
-  const fetchLimit = parsePositiveInt(process.env.OTP_FETCH_LIMIT, 30);
+  const fetchLimit = parsePositiveInt(process.env.OTP_FETCH_LIMIT, 10);
   const sinceGraceSeconds = parsePositiveInt(process.env.OTP_SINCE_GRACE_SECONDS, 90);
   const imapConnectionTimeoutSeconds = parsePositiveInt(process.env.OTP_IMAP_CONNECTION_TIMEOUT_SECONDS, 10);
   const imapGreetingTimeoutSeconds = parsePositiveInt(process.env.OTP_IMAP_GREETING_TIMEOUT_SECONDS, 10);
-  const imapSocketTimeoutSeconds = parsePositiveInt(process.env.OTP_IMAP_SOCKET_TIMEOUT_SECONDS, 12);
+  const imapSocketTimeoutSeconds = parsePositiveInt(process.env.OTP_IMAP_SOCKET_TIMEOUT_SECONDS, 300);
+  const imapKeepAliveSeconds = parsePositiveInt(process.env.OTP_IMAP_KEEPALIVE_SECONDS, 60);
+  const otpRequestTimeoutSeconds = parsePositiveInt(process.env.OTP_REQUEST_TIMEOUT_SECONDS, 25);
 
   return {
     port: Number.isFinite(port) ? port : 80,
@@ -298,6 +303,8 @@ function loadConfig(): EnvConfig {
     imapConnectionTimeoutMs: imapConnectionTimeoutSeconds * 1000,
     imapGreetingTimeoutMs: imapGreetingTimeoutSeconds * 1000,
     imapSocketTimeoutMs: imapSocketTimeoutSeconds * 1000,
+    imapKeepAliveMs: imapKeepAliveSeconds * 1000,
+    otpRequestTimeoutMs: otpRequestTimeoutSeconds * 1000,
   };
 }
 
@@ -346,6 +353,7 @@ function createImapConfig(env: EnvConfig): ImapFlowOptions {
     connectionTimeout: env.imapConnectionTimeoutMs,
     greetingTimeout: env.imapGreetingTimeoutMs,
     socketTimeout: env.imapSocketTimeoutMs,
+    disableAutoIdle: true,
     logger: false,
   };
 }
@@ -356,7 +364,10 @@ class ImapService {
   private lastConnectionError: string | null = null;
   private sessions = new Map<string, SessionState>();
   private claims = new Map<number, ClaimRecord>();
+  private sessionPolls = new Map<string, Promise<OtpResult>>();
   private assignmentQueue: Promise<void> = Promise.resolve();
+  private keepAliveTimer: NodeJS.Timeout | null = null;
+  private keepAliveInFlight = false;
 
   constructor(private readonly env: EnvConfig) {}
 
@@ -411,7 +422,36 @@ class ImapService {
   }
 
   async findOtpBySession(sessionId: string): Promise<OtpResult> {
-    return this.withAssignmentLock(async () => {
+    const activePoll = this.sessionPolls.get(sessionId);
+    if (activePoll) {
+      return this.createCurrentSessionResult(
+        sessionId,
+        "Dang doc IMAP cho session nay. Backend se tra ma ngay khi co ket qua."
+      );
+    }
+
+    const poll = this.findOtpBySessionNow(sessionId)
+      .catch((error) => this.createPollErrorResult(sessionId, error))
+      .finally(() => {
+        this.sessionPolls.delete(sessionId);
+      });
+
+    this.sessionPolls.set(sessionId, poll);
+
+    return withTimeout(
+      poll,
+      this.env.otpRequestTimeoutMs,
+      () =>
+        this.createCurrentSessionResult(
+          sessionId,
+          "IMAP dang phan hoi cham. Backend van dang doc va se thu lai o lan poll tiep theo."
+        )
+    );
+  }
+
+  private async findOtpBySessionNow(sessionId: string): Promise<OtpResult> {
+    const startedAt = Date.now();
+    const result = await this.withAssignmentLock(async (queueWaitMs) => {
       const now = Date.now();
       this.cleanupState(now);
 
@@ -424,7 +464,10 @@ class ImapService {
 
       if (session.status === "resolved") {
         const debug = this.createDebug(session.email, session.normalizedEmail, session.startedAt, session.id);
+        debug.timingsMs.queueWait = queueWaitMs;
+        debug.timingsMs.total = Date.now() - startedAt;
         this.populateDebug(debug, [], [], session);
+        this.logTiming(debug);
         return this.toOtpResult(session, debug);
       }
 
@@ -433,11 +476,16 @@ class ImapService {
           session.email,
           session.normalizedEmail,
           session.startedAt,
-          session.id
+          session.id,
+          queueWaitMs
         );
+        const parseStartedAt = Date.now();
         const { parsedCandidates, debugCandidates } = await this.parseCandidates(candidates);
+        debug.timingsMs.parse = Date.now() - parseStartedAt;
 
+        const assignStartedAt = Date.now();
         this.assignCandidates(parsedCandidates);
+        debug.timingsMs.assign = Date.now() - assignStartedAt;
 
         const updatedSession = this.sessions.get(sessionId);
         if (!updatedSession) {
@@ -446,6 +494,7 @@ class ImapService {
 
         updatedSession.lastAccessedAt = Date.now();
         this.populateDebug(debug, parsedCandidates, debugCandidates, updatedSession);
+        debug.timingsMs.total = Date.now() - startedAt;
 
         const result = this.toOtpResult(updatedSession, debug);
         console.log("[otp-debug] result", JSON.stringify({
@@ -457,9 +506,12 @@ class ImapService {
           candidateCount: debug.candidates.length,
           error: result.error,
         }));
+        this.logTiming(debug);
         return result;
       } catch (error) {
         const debug = this.createDebug(session.email, session.normalizedEmail, session.startedAt, session.id);
+        debug.timingsMs.queueWait = queueWaitMs;
+        debug.timingsMs.total = Date.now() - startedAt;
         debug.connectionError = this.lastConnectionError;
         debug.fetchError = serializeError(error);
         this.populateDebug(debug, [], [], session);
@@ -485,13 +537,17 @@ class ImapService {
           candidateCount: debug.candidates.length,
           error: result.error,
         }));
+        this.logTiming(debug);
         return result;
       }
     });
+
+    return result;
   }
 
   async close() {
     this.connectPromise = null;
+    this.stopKeepAlive();
 
     if (!this.client) {
       return;
@@ -508,7 +564,63 @@ class ImapService {
     currentClient.close();
   }
 
-  private async withAssignmentLock<T>(task: () => Promise<T>): Promise<T> {
+  private startKeepAlive() {
+    this.stopKeepAlive();
+
+    this.keepAliveTimer = setInterval(() => {
+      void this.keepAlive();
+    }, this.env.imapKeepAliveMs);
+  }
+
+  private stopKeepAlive() {
+    if (this.keepAliveTimer) {
+      clearInterval(this.keepAliveTimer);
+      this.keepAliveTimer = null;
+    }
+
+    this.keepAliveInFlight = false;
+  }
+
+  private async keepAlive() {
+    if (this.keepAliveInFlight || !this.client?.usable) {
+      return;
+    }
+
+    const hasWaitingSession = Array.from(this.sessions.values()).some(
+      (session) => session.status === "waiting"
+    );
+
+    if (hasWaitingSession || this.sessionPolls.size > 0) {
+      return;
+    }
+
+    this.keepAliveInFlight = true;
+    const startedAt = Date.now();
+
+    try {
+      await this.withAssignmentLock(async () => {
+        if (!this.client?.usable) {
+          return;
+        }
+
+        await this.client.noop();
+      });
+
+      console.log("[otp-imap-keepalive]", JSON.stringify({
+        status: "ok",
+        durationMs: Date.now() - startedAt,
+      }));
+    } catch (error) {
+      this.lastConnectionError = serializeError(error);
+      console.error("IMAP keepalive error:", error);
+      await this.close();
+    } finally {
+      this.keepAliveInFlight = false;
+    }
+  }
+
+  private async withAssignmentLock<T>(task: (queueWaitMs: number) => Promise<T>): Promise<T> {
+    const queuedAt = Date.now();
     const previous = this.assignmentQueue;
     let release = () => {};
 
@@ -517,9 +629,10 @@ class ImapService {
     });
 
     await previous;
+    const queueWaitMs = Date.now() - queuedAt;
 
     try {
-      return await task();
+      return await task(queueWaitMs);
     } finally {
       release();
     }
@@ -540,6 +653,47 @@ class ImapService {
       error: "Session expired or reset. Start listening again.",
       debug,
     };
+  }
+
+  private createCurrentSessionResult(sessionId: string, error: string | null): OtpResult {
+    const now = Date.now();
+    this.cleanupState(now);
+
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      return this.createExpiredSessionResult(sessionId);
+    }
+
+    session.lastAccessedAt = now;
+
+    const debug = this.createDebug(session.email, session.normalizedEmail, session.startedAt, session.id);
+    this.populateDebug(debug, [], [], session);
+
+    return {
+      ...this.toOtpResult(session, debug),
+      error: session.status === "resolved" ? null : error,
+    };
+  }
+
+  private createPollErrorResult(sessionId: string, error: unknown): OtpResult {
+    const result = this.createCurrentSessionResult(sessionId, serializeError(error));
+
+    console.error("Poll OTP error:", error);
+    return result;
+  }
+
+  private logTiming(debug: OtpDebug) {
+    console.log("[otp-timing]", JSON.stringify({
+      sessionId: debug.sessionId,
+      email: debug.email,
+      sessionStatus: debug.sessionStatus,
+      matchedCandidateUid: debug.matchedCandidateUid,
+      uidCount: debug.uidCount,
+      recentUidCount: debug.recentUidCount,
+      fetchedMessageCount: debug.fetchedMessageCount,
+      filteredMessageCount: debug.filteredMessageCount,
+      timingsMs: debug.timingsMs,
+    }));
   }
 
   private toOtpResult(session: SessionState, debug: OtpDebug): OtpResult {
@@ -595,6 +749,7 @@ class ImapService {
       claimedUidCount: 0,
       connectionError: this.lastConnectionError,
       fetchError: null,
+      timingsMs: {},
       candidates: [],
     };
   }
@@ -603,18 +758,26 @@ class ImapService {
     email: string,
     normalizedEmail: string,
     since: number,
-    sessionId: string
+    sessionId: string,
+    queueWaitMs: number
   ): Promise<FetchCandidatesResult> {
+    const getClientStartedAt = Date.now();
     const client = await this.getClient();
+    const getClientMs = Date.now() - getClientStartedAt;
+
+    const mailboxLockStartedAt = Date.now();
     const lock = await client.getMailboxLock(this.env.mailbox);
+    const mailboxLockMs = Date.now() - mailboxLockStartedAt;
     const debug = this.createDebug(email, normalizedEmail, since, sessionId);
+    debug.timingsMs.queueWait = queueWaitMs;
+    debug.timingsMs.getClient = getClientMs;
+    debug.timingsMs.mailboxLock = mailboxLockMs;
 
     try {
-      const searchSince = new Date(debug.searchSince);
-      const uids = (await client.search({ since: searchSince }, { uid: true })) || [];
-      debug.uidCount = uids.length;
+      const mailboxExists = client.mailbox ? client.mailbox.exists : 0;
+      debug.uidCount = mailboxExists;
 
-      if (uids.length === 0) {
+      if (mailboxExists === 0) {
         console.log("[otp-debug] fetch-summary", JSON.stringify({
           sessionId,
           email,
@@ -631,19 +794,18 @@ class ImapService {
         return { candidates: [], debug };
       }
 
-      const recentUids = uids.slice(-this.env.fetchLimit);
-      debug.recentUids = recentUids;
-      debug.recentUidCount = recentUids.length;
-
+      const sequenceStart = Math.max(1, mailboxExists - this.env.fetchLimit + 1);
+      const recentRange = `${sequenceStart}:*`;
+      const fetchRecentStartedAt = Date.now();
       const messages = await client.fetchAll(
-        recentUids,
+        recentRange,
         {
-          envelope: true,
           internalDate: true,
           source: true,
         },
-        { uid: true }
+        { uid: false }
       );
+      debug.timingsMs.fetchRecent = Date.now() - fetchRecentStartedAt;
       debug.fetchedMessageCount = messages.length;
 
       const candidates = messages
@@ -651,7 +813,28 @@ class ImapService {
         .filter((message): message is MailCandidate => Boolean(message))
         .filter((message) => message.receivedAt >= debug.effectiveSince)
         .sort((a, b) => b.receivedAt - a.receivedAt || b.uid - a.uid);
+      debug.recentUids = candidates.map((candidate) => candidate.uid);
+      debug.recentUidCount = messages.length;
       debug.filteredMessageCount = candidates.length;
+
+      if (candidates.length === 0) {
+        console.log("[otp-debug] fetch-summary", JSON.stringify({
+          sessionId,
+          email,
+          normalizedEmail,
+          since: debug.since,
+          effectiveSince: debug.effectiveSince,
+          searchSince: debug.searchSince,
+          uidCount: debug.uidCount,
+          recentUidCount: debug.recentUidCount,
+          recentUids: debug.recentUids,
+          fetchedMessageCount: debug.fetchedMessageCount,
+          filteredMessageCount: debug.filteredMessageCount,
+          connectionError: debug.connectionError,
+        }));
+
+        return { candidates: [], debug };
+      }
 
       console.log("[otp-debug] fetch-summary", JSON.stringify({
         sessionId,
@@ -898,6 +1081,7 @@ class ImapService {
 
       client.on("close", () => {
         this.client = null;
+        this.stopKeepAlive();
       });
 
       client.on("error", (error) => {
@@ -908,6 +1092,7 @@ class ImapService {
       await client.connect();
       this.lastConnectionError = null;
       this.client = client;
+      this.startKeepAlive();
       this.connectPromise = null;
       return client;
     })();
@@ -1093,4 +1278,21 @@ function serializeError(error: unknown): string {
 
 function toIsoString(value: number): string {
   return new Date(value).toISOString();
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, onTimeout: () => T): Promise<T> {
+  let timeoutId: NodeJS.Timeout | null = null;
+
+  const timeoutPromise = new Promise<T>((resolve) => {
+    timeoutId = setTimeout(() => {
+      timeoutId = null;
+      resolve(onTimeout());
+    }, timeoutMs);
+  });
+
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  });
 }

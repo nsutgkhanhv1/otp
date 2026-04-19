@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 
 const API_BASE = import.meta.env.VITE_OTP_API_BASE ?? "http://localhost:8787";
 const POLL_INTERVAL_MS = 2000;
-const POLL_REQUEST_TIMEOUT_MS = 15000;
 
 type ListenStatus = "idle" | "waiting" | "received";
 
@@ -143,15 +142,13 @@ export default function App() {
     let hasReceivedOtp = false;
 
     const pollOtp = async (): Promise<boolean> => {
-      const abortController = new AbortController();
-      const abortTimeout = window.setTimeout(() => {
-        abortController.abort();
-      }, POLL_REQUEST_TIMEOUT_MS);
-
       try {
-        const res = await fetch(`${API_BASE}/otp?sessionId=${encodeURIComponent(newSessionId)}`, {
-          signal: abortController.signal,
-        });
+        const res = await fetch(`${API_BASE}/otp?sessionId=${encodeURIComponent(newSessionId)}`);
+        if (!res.ok) {
+          setErrorMessage(`API OTP dang loi (${res.status}). Dang thu lai...`);
+          return sessionRef.current === runId;
+        }
+
         const data = (await res.json()) as OtpResponse;
         setDebugInfo(data.debug ?? null);
 
@@ -180,14 +177,8 @@ export default function App() {
         return true;
       } catch (err) {
         console.error("Failed to fetch OTP", err);
-        setErrorMessage(
-          err instanceof DOMException && err.name === "AbortError"
-            ? "API OTP phan hoi cham. Dang thu lai..."
-            : "Khong goi duoc API OTP. Kiem tra backend va mang.",
-        );
+        setErrorMessage("Khong goi duoc API OTP. Kiem tra backend va mang.");
         return sessionRef.current === runId;
-      } finally {
-        window.clearTimeout(abortTimeout);
       }
     };
 
