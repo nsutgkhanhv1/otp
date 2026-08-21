@@ -165,9 +165,30 @@ const getInitialLanguage = (): Language => {
   return window.localStorage.getItem("meko-language") === "en" ? "en" : "vi";
 };
 
+const getInitialEmail = (): string => {
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  const path = window.location.pathname.replace(/^\/+|\/+$/g, "");
+
+  if (!path || path.includes("/")) {
+    return "";
+  }
+
+  try {
+    const emailFromPath = decodeURIComponent(path).trim();
+
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailFromPath) ? emailFromPath : "";
+  } catch {
+    return "";
+  }
+};
+
 export default function App() {
   const [language, setLanguage] = useState<Language>(getInitialLanguage);
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(getInitialEmail);
+
   const [otp, setOtp] = useState<string | null>(null);
   const [status, setStatus] = useState<ListenStatus>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
